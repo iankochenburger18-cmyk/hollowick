@@ -1,0 +1,19 @@
+# Never commit real secrets
+.env
+.env.local
+
+# Dependencies
+node_modules/
+
+# Build output
+.next/
+dist/
+build/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS/editor cruft
+.DS_Store
+.vscode/

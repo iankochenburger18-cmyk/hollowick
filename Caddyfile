@@ -1,0 +1,5 @@
+# Replace with your actual domain once it's pointed at this server.
+# Caddy handles HTTPS automatically — no certificate setup needed.
+yourdomain.com {
+    reverse_proxy app:3000
+}
