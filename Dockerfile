@@ -1,12 +1,12 @@
 FROM node:20-slim
 
+RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm install
-
 COPY prisma ./prisma
-RUN npx prisma generate
+RUN npm install
 
 COPY . .
 RUN npm run build
