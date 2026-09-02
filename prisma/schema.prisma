@@ -55,16 +55,18 @@ enum JobStatus {
 }
 
 model GenerationJob {
-  id        String    @id @default(cuid())
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status    JobStatus @default(QUEUED)
-  provider  String?
-  prompt    String
-  costCents Int?
-  resultUrl String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status         JobStatus @default(QUEUED)
+  provider       String?
+  providerJobId  String?
+  prompt         String
+  costCents      Int?
+  resultUrl      String?
+  error          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([userId])
 }
