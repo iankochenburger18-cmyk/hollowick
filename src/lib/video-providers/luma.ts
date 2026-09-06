@@ -45,8 +45,9 @@ async function lumaRequest(path: string, init: RequestInit): Promise<LumaGenerat
   }
 
   if (response.status === 401 || response.status === 403) {
+    const body = await response.text().catch(() => "");
     throw new VideoProviderError(
-      `Luma API rejected the request as unauthorized (HTTP ${response.status}) — check LUMA_API_KEY`,
+      `Luma API rejected the request as unauthorized (HTTP ${response.status}) ${body} — check that LUMA_API_KEY is valid and the account is active/funded`.trim(),
       "auth_error"
     );
   }
