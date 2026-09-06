@@ -15,11 +15,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: "Password", type: "password" },
       },
       authorize: async (credentials) => {
-        const email = credentials?.email;
+        const rawEmail = credentials?.email;
         const password = credentials?.password;
-        if (typeof email !== "string" || typeof password !== "string") {
+        if (typeof rawEmail !== "string" || typeof password !== "string") {
           return null;
         }
+
+        // /api/register stores emails trimmed + lowercased — normalize here too,
+        // otherwise a signup with any uppercase in the email can't find its own
+        // row on the immediate auto-login (Postgres text equality is case-sensitive).
+        const email = rawEmail.trim().toLowerCase();
 
         const user = await prisma.user.findUnique({ where: { email } });
         if (!user) return null;
