@@ -16,6 +16,17 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// AWS SDK v3 errors against non-AWS S3-compatible endpoints often carry a
+// useless generic .message (e.g. "UnknownError") while .name has the real
+// code (e.g. "InvalidAccessKeyId") — surface both when they differ.
+function describeError(err: unknown): string {
+  if (err instanceof Error) {
+    const name = err.name && err.name !== "Error" ? err.name : null;
+    return name && name !== err.message ? `${name}: ${err.message}` : err.message;
+  }
+  return String(err);
+}
+
 async function failJob(jobId: string, error: string) {
   await prisma.generationJob.update({
     where: { id: jobId },
@@ -57,9 +68,7 @@ const worker = new Worker<GenerationJobData>(
         result = await provider.getStatus(record.providerJobId);
       } catch (err) {
         const message =
-          err instanceof VideoProviderError
-            ? err.message
-            : `Provider status check failed: ${err instanceof Error ? err.message : String(err)}`;
+          err instanceof VideoProviderError ? err.message : `Provider status check failed: ${describeError(err)}`;
         await failJob(jobId, message);
         return;
       }
@@ -82,10 +91,7 @@ const worker = new Worker<GenerationJobData>(
             data: { status: "COMPLETED", resultUrl: storedUrl },
           });
         } catch (err) {
-          await failJob(
-            jobId,
-            `Generation succeeded but upload to storage failed: ${err instanceof Error ? err.message : String(err)}`
-          );
+          await failJob(jobId, `Generation succeeded but upload to storage failed: ${describeError(err)}`);
         }
         return;
       }
