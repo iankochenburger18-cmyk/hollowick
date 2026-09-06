@@ -1,16 +1,21 @@
 import type { VideoGenerateParams, VideoGenerateResult, VideoProvider, VideoStatusResult } from "./types";
 import { VideoProviderError } from "./types";
 
-// Luma Dream Machine API — https://docs.lumalabs.ai/docs/api
-const LUMA_API_BASE = "https://api.lumalabs.ai/dream-machine/v1";
-
-type LumaGenerationState = "queued" | "dreaming" | "completed" | "failed";
+// Luma Agents API — https://docs.agents.lumalabs.ai
+// (api.lumalabs.ai/dream-machine is a legacy host that returns a blanket "Not
+// authenticated" 403 for this account regardless of key validity — confirmed
+// live against the account's own dashboard-provided snippet.)
+const LUMA_API_BASE = "https://agents.lumalabs.ai/v1";
+const LUMA_VIDEO_MODEL = "ray-3.2";
+const DEFAULT_RESOLUTION = "540p";
+const DEFAULT_DURATION = "5s";
 
 interface LumaGenerationResponse {
   id: string;
-  state: LumaGenerationState;
+  state: string;
   failure_reason?: string | null;
-  assets?: { video?: string } | null;
+  failure_code?: string | null;
+  output?: Array<{ type: string; url?: string }> | null;
 }
 
 function requireApiKey(): string {
@@ -60,17 +65,18 @@ async function lumaRequest(path: string, init: RequestInit): Promise<LumaGenerat
   return response.json() as Promise<LumaGenerationResponse>;
 }
 
-function mapState(state: LumaGenerationState): VideoStatusResult["status"] {
+function mapState(state: string): VideoStatusResult["status"] {
   switch (state) {
     case "queued":
       return "pending";
-    case "dreaming":
-      return "processing";
     case "completed":
       return "completed";
     case "failed":
       return "failed";
     default:
+      // Covers in-progress states the API may report between queued and
+      // completed (observed/documented names vary — treat anything else
+      // as still running rather than guessing at an exhaustive enum).
       return "processing";
   }
 }
@@ -79,7 +85,7 @@ export const lumaProvider: VideoProvider = {
   name: "luma",
 
   async generate(params: VideoGenerateParams): Promise<VideoGenerateResult> {
-    const { prompt, aspectRatio, duration, ...rest } = params;
+    const { prompt, aspectRatio, duration, resolution, ...rest } = params;
 
     if (!prompt) {
       throw new VideoProviderError("prompt is required", "invalid_params");
@@ -88,9 +94,14 @@ export const lumaProvider: VideoProvider = {
     const body = await lumaRequest("/generations", {
       method: "POST",
       body: JSON.stringify({
+        model: LUMA_VIDEO_MODEL,
+        type: "video",
         prompt,
         aspect_ratio: aspectRatio ?? "16:9",
-        ...(duration !== undefined ? { duration: typeof duration === "number" ? `${duration}s` : duration } : {}),
+        video: {
+          resolution: typeof resolution === "string" ? resolution : DEFAULT_RESOLUTION,
+          duration: duration !== undefined ? (typeof duration === "number" ? `${duration}s` : duration) : DEFAULT_DURATION,
+        },
         ...rest,
       }),
     });
@@ -110,7 +121,8 @@ export const lumaProvider: VideoProvider = {
     }
 
     if (status === "completed") {
-      return { status, videoUrl: body.assets?.video ?? undefined };
+      const video = body.output?.find((asset) => asset.type === "video");
+      return { status, videoUrl: video?.url ?? undefined };
     }
 
     return { status };
