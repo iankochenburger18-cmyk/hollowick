@@ -1,4 +1,10 @@
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+
+// SigV4 presigned URLs cap out at 7 days — there's no "durable" URL for a
+// private bucket without either making objects public or re-signing on
+// access, so resultUrl will need re-signing past this window.
+const RESULT_URL_EXPIRY_SECONDS = 60 * 60 * 24 * 7;
 
 let client: S3Client | undefined;
 
@@ -31,8 +37,9 @@ export async function uploadVideoFromUrl(sourceUrl: string, key: string): Promis
   }
 
   const bytes = new Uint8Array(await response.arrayBuffer());
+  const client = getClient();
 
-  await getClient().send(
+  await client.send(
     new PutObjectCommand({
       Bucket: bucket,
       Key: key,
@@ -41,6 +48,7 @@ export async function uploadVideoFromUrl(sourceUrl: string, key: string): Promis
     })
   );
 
-  const endpoint = process.env.S3_ENDPOINT!.replace(/\/$/, "");
-  return `${endpoint}/${bucket}/${key}`;
+  return getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), {
+    expiresIn: RESULT_URL_EXPIRY_SECONDS,
+  });
 }
