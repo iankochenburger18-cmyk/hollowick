@@ -2,9 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { generationQueue } from "@/lib/queue";
-import { getVideoProvider, VideoProviderError } from "@/lib/video-providers";
-
-const DEFAULT_PROVIDER = "luma";
+import { getVideoProvider, resolveProviderName, VideoProviderError } from "@/lib/video-providers";
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -14,7 +12,12 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => null);
   const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : null;
-  const providerName = typeof body?.provider === "string" ? body.provider : DEFAULT_PROVIDER;
+  const model = typeof body?.model === "string" ? body.model : null;
+  // `provider` is kept as a back-compat/manual-override escape hatch — the
+  // studio UI sends `model` (the dropdown label) and lets MODEL_TO_PROVIDER
+  // resolve which adapter actually serves it.
+  const explicitProvider = typeof body?.provider === "string" ? body.provider : null;
+  const providerName = resolveProviderName(model, explicitProvider);
   const duration = typeof body?.duration === "number" ? body.duration : undefined;
   const aspectRatio = typeof body?.aspectRatio === "string" ? body.aspectRatio : undefined;
 

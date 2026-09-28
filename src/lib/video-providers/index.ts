@@ -1,12 +1,38 @@
 import type { VideoProvider } from "./types";
 import { VideoProviderError } from "./types";
 import { lumaProvider } from "./luma";
+import { veoProvider } from "./veo";
+import { klingProvider } from "./kling";
+import { runwayProvider } from "./runway";
+import { falModelProviders } from "./fal";
 
-// Add a new provider by writing its adapter file (matching VideoProvider) and
-// registering it here — nothing else in the app needs to change.
+// Add a new direct provider by writing its adapter file (matching
+// VideoProvider) and registering it here — nothing else in the app needs to
+// change. Add a new fal.ai-backed provider instead by adding one line to
+// FAL_MODEL_IDS in fal.ts — falModelProviders() picks it up automatically.
 const registry: Record<string, VideoProvider> = {
   luma: lumaProvider,
+  veo: veoProvider,
+  kling: klingProvider,
+  runway: runwayProvider,
+  ...falModelProviders(),
 };
+
+// UI-facing model names (as shown in the studio's model dropdown) mapped to
+// the provider registry key that actually serves them. Keep this in sync
+// with the MODELS array in the frontend's studio.js.
+export const MODEL_TO_PROVIDER: Record<string, string> = {
+  Ray3: "luma",
+  "Veo 3.1": "veo",
+  "Kling 3.0": "kling",
+  "Gen-4.5": "runway",
+};
+
+export function resolveProviderName(model: string | null | undefined, fallbackProvider: string | null | undefined): string {
+  if (model && MODEL_TO_PROVIDER[model]) return MODEL_TO_PROVIDER[model];
+  if (fallbackProvider) return fallbackProvider;
+  return "luma";
+}
 
 export function getVideoProvider(name: string): VideoProvider {
   const provider = registry[name];
