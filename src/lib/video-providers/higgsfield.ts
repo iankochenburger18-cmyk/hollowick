@@ -34,16 +34,24 @@ interface HiggsfieldStatusResponse {
   error?: string;
 }
 
+// console.higgsfield.ai currently issues ONE key that already comes
+// formatted as "<key-id>:<key-secret>" (its own setup snippet says
+// HF_KEY=your-api-key-id:your-api-key-secret) — you copy that whole string
+// as a single value, there's no separate secret field to grab. Some accounts
+// may instead be issued the id/secret as two separate values, so fall back
+// to combining those if that's what's set.
 function requireAuthHeader(): string {
+  const singleKey = process.env.HIGGSFIELD_API_KEY;
+  if (singleKey) return `Key ${singleKey}`;
+
   const keyId = process.env.HIGGSFIELD_API_KEY_ID;
   const keySecret = process.env.HIGGSFIELD_API_KEY_SECRET;
-  if (!keyId || !keySecret) {
-    throw new VideoProviderError(
-      "HIGGSFIELD_API_KEY_ID and HIGGSFIELD_API_KEY_SECRET must both be set — get a key pair from console.higgsfield.ai",
-      "missing_api_key"
-    );
-  }
-  return `Key ${keyId}:${keySecret}`;
+  if (keyId && keySecret) return `Key ${keyId}:${keySecret}`;
+
+  throw new VideoProviderError(
+    "No Higgsfield credentials set — set HIGGSFIELD_API_KEY to the single key from console.higgsfield.ai (already formatted as key-id:key-secret), or HIGGSFIELD_API_KEY_ID + HIGGSFIELD_API_KEY_SECRET if your account issued them separately",
+    "missing_api_key"
+  );
 }
 
 async function higgsfieldRequest<T>(url: string, init: RequestInit): Promise<T> {
