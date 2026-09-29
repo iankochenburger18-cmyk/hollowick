@@ -5,17 +5,21 @@ import { veoProvider } from "./veo";
 import { klingProvider } from "./kling";
 import { runwayProvider } from "./runway";
 import { falModelProviders } from "./fal";
+import { higgsfieldModelProviders } from "./higgsfield";
 
 // Add a new direct provider by writing its adapter file (matching
 // VideoProvider) and registering it here — nothing else in the app needs to
 // change. Add a new fal.ai-backed provider instead by adding one line to
 // FAL_MODEL_IDS in fal.ts — falModelProviders() picks it up automatically.
+// Same idea for a new Higgsfield-backed provider via HIGGSFIELD_MODEL_PATHS
+// in higgsfield.ts.
 const registry: Record<string, VideoProvider> = {
   luma: lumaProvider,
   veo: veoProvider,
   kling: klingProvider,
   runway: runwayProvider,
   ...falModelProviders(),
+  ...higgsfieldModelProviders(),
 };
 
 // UI-facing model names (as shown in the studio's model dropdown) mapped to
@@ -30,6 +34,9 @@ export const MODEL_TO_PROVIDER: Record<string, string> = {
   "PixVerse v6": "pixverse-v6",
   "MiniMax H3 Max Turbo": "minimax-h3-max-turbo",
   "Wan 3.0 Prime": "wan-3.0-prime",
+  // Genjutsu is a motion-transfer model, not plain text-to-video — it needs
+  // videoUrl + imageUrls in the generate() params too. See higgsfield.ts.
+  Genjutsu: "genjutsu",
 };
 
 export function resolveProviderName(model: string | null | undefined, fallbackProvider: string | null | undefined): string {

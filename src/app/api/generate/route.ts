@@ -20,6 +20,13 @@ export async function POST(request: Request) {
   const providerName = resolveProviderName(model, explicitProvider);
   const duration = typeof body?.duration === "number" ? body.duration : undefined;
   const aspectRatio = typeof body?.aspectRatio === "string" ? body.aspectRatio : undefined;
+  // Only used by reference-driven models like Genjutsu (see MODEL_TO_PROVIDER
+  // and higgsfield.ts) — ignored by every other provider's generate().
+  const videoUrl = typeof body?.videoUrl === "string" ? body.videoUrl : undefined;
+  const imageUrls = Array.isArray(body?.imageUrls)
+    ? body.imageUrls.filter((url: unknown): url is string => typeof url === "string" && url.length > 0)
+    : undefined;
+  const resolution = typeof body?.resolution === "string" ? body.resolution : undefined;
 
   if (!prompt) {
     return NextResponse.json({ error: "prompt is required." }, { status: 400 });
@@ -43,7 +50,7 @@ export async function POST(request: Request) {
   });
 
   try {
-    const { jobId: providerJobId } = await provider.generate({ prompt, duration, aspectRatio });
+    const { jobId: providerJobId } = await provider.generate({ prompt, duration, aspectRatio, videoUrl, imageUrls, resolution });
 
     await prisma.generationJob.update({
       where: { id: job.id },
