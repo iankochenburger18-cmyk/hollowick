@@ -28,6 +28,8 @@ export const MODEL_TO_PROVIDER: Record<string, string> = {
   "Gen-4.5": "runway",
   "Seedance 2.5": "seedance-2.5",
   "PixVerse v6": "pixverse-v6",
+  "MiniMax H3 Max Turbo": "minimax-h3-max-turbo",
+  "Wan 3.0 Prime": "wan-3.0-prime",
 };
 
 export function resolveProviderName(model: string | null | undefined, fallbackProvider: string | null | undefined): string {
