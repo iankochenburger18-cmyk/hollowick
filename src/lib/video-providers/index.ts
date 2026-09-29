@@ -26,6 +26,7 @@ export const MODEL_TO_PROVIDER: Record<string, string> = {
   "Veo 3.1": "veo",
   "Kling 3.0": "kling",
   "Gen-4.5": "runway",
+  "Seedance 2.5": "seedance-2.5",
 };
 
 export function resolveProviderName(model: string | null | undefined, fallbackProvider: string | null | undefined): string {

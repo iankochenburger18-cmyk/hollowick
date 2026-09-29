@@ -16,8 +16,10 @@ import { VideoProviderError } from "./types";
 const FAL_QUEUE_BASE = "https://queue.fal.run";
 
 export const FAL_MODEL_IDS: Record<string, string> = {
-  // Fill in with real endpoint ids from fal.ai's dashboard, e.g.:
-  // "fal-seedance": "fal-ai/bytedance/seedance/v2/text-to-video",
+  // Partner-hosted models (like this one) use the vendor's own namespace
+  // directly rather than a "fal-ai/" prefix — copy whatever's actually in
+  // the "API" tab's code sample, not necessarily "fal-ai/...".
+  "seedance-2.5": "bytedance/seedance-2.5/text-to-video",
   // "fal-pixverse": "fal-ai/pixverse/v5/text-to-video",
   // "fal-wan": "fal-ai/wan/v3/text-to-video",
 };
