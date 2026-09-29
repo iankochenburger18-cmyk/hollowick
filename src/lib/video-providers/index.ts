@@ -27,6 +27,7 @@ export const MODEL_TO_PROVIDER: Record<string, string> = {
   "Kling 3.0": "kling",
   "Gen-4.5": "runway",
   "Seedance 2.5": "seedance-2.5",
+  "PixVerse v6": "pixverse-v6",
 };
 
 export function resolveProviderName(model: string | null | undefined, fallbackProvider: string | null | undefined): string {

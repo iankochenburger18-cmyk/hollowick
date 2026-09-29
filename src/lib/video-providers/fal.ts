@@ -20,7 +20,7 @@ export const FAL_MODEL_IDS: Record<string, string> = {
   // directly rather than a "fal-ai/" prefix — copy whatever's actually in
   // the "API" tab's code sample, not necessarily "fal-ai/...".
   "seedance-2.5": "bytedance/seedance-2.5/text-to-video",
-  // "fal-pixverse": "fal-ai/pixverse/v5/text-to-video",
+  "pixverse-v6": "fal-ai/pixverse/v6/text-to-video",
   // "fal-wan": "fal-ai/wan/v3/text-to-video",
 };
 
