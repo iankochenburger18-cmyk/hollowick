@@ -3,11 +3,20 @@ import type { VideoGenerateParams, VideoGenerateResult, VideoProvider, VideoStat
 import { VideoProviderError } from "./types";
 
 // Kling AI (Kuaishou) open platform — https://kling.ai/dev
-// Auth is a short-lived JWT signed with an Access Key / Secret Key pair (not
-// a single bearer token), generated fresh per request below. Endpoint paths
-// and payload shape here follow Kling's publicly documented text-to-video
-// flow as of this writing — Kling's API has changed shape before, so verify
-// against https://kling.ai/document-api before relying on this in production.
+//
+// Kling actually supports two auth methods, and which one your dashboard
+// hands you appears to depend on when/where you signed up:
+//   - KLING_API_KEY: a single key sent as a plain bearer token. This is what
+//     kling.ai/dev/api-key issues by default now — most new accounts will
+//     only have this.
+//   - KLING_ACCESS_KEY + KLING_SECRET_KEY: an older key-pair scheme where
+//     each request is authenticated with a short-lived JWT signed using the
+//     secret key. Kept here for accounts that were issued this style.
+// If KLING_API_KEY is set, it's used as-is. Otherwise we fall back to
+// signing a JWT from the access/secret pair. Endpoint paths and payload
+// shape below follow Kling's publicly documented text-to-video flow as of
+// this writing — verify against https://kling.ai/document-api before
+// relying on this in production, since Kling's API has changed shape before.
 const KLING_API_BASE = "https://api.klingai.com";
 const KLING_MODEL = "kling-v3";
 const JWT_TTL_SECONDS = 1800;
@@ -29,18 +38,6 @@ function base64url(input: Buffer): string {
   return input.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function requireKeys(): { accessKey: string; secretKey: string } {
-  const accessKey = process.env.KLING_ACCESS_KEY;
-  const secretKey = process.env.KLING_SECRET_KEY;
-  if (!accessKey || !secretKey) {
-    throw new VideoProviderError(
-      "KLING_ACCESS_KEY / KLING_SECRET_KEY are not set — add both to the environment before generating with the kling provider",
-      "missing_api_key"
-    );
-  }
-  return { accessKey, secretKey };
-}
-
 function createKlingJwt(accessKey: string, secretKey: string): string {
   const nowSeconds = Math.floor(Date.now() / 1000);
   const header = { alg: "HS256", typ: "JWT" };
@@ -53,9 +50,23 @@ function createKlingJwt(accessKey: string, secretKey: string): string {
   return `${encodedHeader}.${encodedPayload}.${signature}`;
 }
 
+/** Resolves whichever credential style is configured into a ready-to-send bearer token. */
+function resolveAuthToken(): string {
+  const apiKey = process.env.KLING_API_KEY;
+  if (apiKey) return apiKey;
+
+  const accessKey = process.env.KLING_ACCESS_KEY;
+  const secretKey = process.env.KLING_SECRET_KEY;
+  if (accessKey && secretKey) return createKlingJwt(accessKey, secretKey);
+
+  throw new VideoProviderError(
+    "No Kling credentials set — set KLING_API_KEY (most accounts), or KLING_ACCESS_KEY + KLING_SECRET_KEY (older key-pair accounts)",
+    "missing_api_key"
+  );
+}
+
 async function klingRequest(path: string, init: RequestInit): Promise<KlingTaskResponse> {
-  const { accessKey, secretKey } = requireKeys();
-  const token = createKlingJwt(accessKey, secretKey);
+  const token = resolveAuthToken();
 
   let response: Response;
   try {
@@ -77,7 +88,7 @@ async function klingRequest(path: string, init: RequestInit): Promise<KlingTaskR
   if (response.status === 401 || response.status === 403) {
     const body = await response.text().catch(() => "");
     throw new VideoProviderError(
-      `Kling API rejected the request as unauthorized (HTTP ${response.status}) ${body} — check KLING_ACCESS_KEY/KLING_SECRET_KEY and that the account is funded`.trim(),
+      `Kling API rejected the request as unauthorized (HTTP ${response.status}) ${body} — check KLING_API_KEY (or KLING_ACCESS_KEY/KLING_SECRET_KEY) and that the account is funded`.trim(),
       "auth_error"
     );
   }
