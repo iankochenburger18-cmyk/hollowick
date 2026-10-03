@@ -37,6 +37,7 @@ export const MODEL_TO_PROVIDER: Record<string, string> = {
   // Genjutsu is a motion-transfer model, not plain text-to-video — it needs
   // videoUrl + imageUrls in the generate() params too. See higgsfield.ts.
   Genjutsu: "genjutsu",
+  "Cinema Studio 4.0": "cinema-studio-4.0",
 };
 
 export function resolveProviderName(model: string | null | undefined, fallbackProvider: string | null | undefined): string {

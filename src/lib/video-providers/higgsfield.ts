@@ -21,7 +21,17 @@ export const HIGGSFIELD_MODEL_PATHS: Record<string, string> = {
   // "Genjutsu" (see MODEL_TO_PROVIDER in index.ts and the
   // data-hw-genjutsu-fields block in studio.js).
   genjutsu: "higgsfield/genjutsu/motion-transfer/v1.0",
+  // Cinema Studio 4.0: plain text-to-video with automatic scene direction.
+  // Takes prompt/duration/resolution/aspect_ratio/generate_audio like any
+  // other prompt-driven model — reference image/video inputs are optional
+  // extras it supports but that the studio UI doesn't send yet.
+  "cinema-studio-4.0": "higgsfield/cinema-studio/4.0",
 };
+
+// Models whose generate() requires videoUrl + imageUrls rather than working
+// from a plain text prompt (motion-transfer style, like Genjutsu). Every
+// other Higgsfield model here is plain prompt-driven.
+const REQUIRES_REFERENCE = new Set(["genjutsu"]);
 
 interface HiggsfieldSubmitResponse {
   status: string;
@@ -112,6 +122,8 @@ function mapStatus(status: string): VideoStatusResult["status"] {
  * that key is what /api/generate's model→provider map should point at.
  */
 export function createHiggsfieldProvider(name: string, modelPath: string): VideoProvider {
+  const requiresReference = REQUIRES_REFERENCE.has(name);
+
   return {
     name,
 
@@ -124,21 +136,39 @@ export function createHiggsfieldProvider(name: string, modelPath: string): Video
         : [];
       const resolution = params.resolution === "480p" ? "480p" : "720p";
 
-      if (!videoUrl) {
-        throw new VideoProviderError("videoUrl (a reference video URL) is required for this model", "invalid_params");
-      }
-      if (imageUrls.length === 0) {
-        throw new VideoProviderError("imageUrls (one or more character/product image URLs) is required for this model", "invalid_params");
-      }
+      let requestBody: Record<string, unknown>;
 
-      const body = await higgsfieldRequest<HiggsfieldSubmitResponse>(`${HIGGSFIELD_API_BASE}/${modelPath}`, {
-        method: "POST",
-        body: JSON.stringify({
+      if (requiresReference) {
+        if (!videoUrl) {
+          throw new VideoProviderError("videoUrl (a reference video URL) is required for this model", "invalid_params");
+        }
+        if (imageUrls.length === 0) {
+          throw new VideoProviderError("imageUrls (one or more character/product image URLs) is required for this model", "invalid_params");
+        }
+        requestBody = {
           video_url: videoUrl,
           image_urls: imageUrls,
           prompt: prompt || undefined,
           resolution,
-        }),
+        };
+      } else {
+        // Plain prompt-driven model (e.g. Cinema Studio 4.0). Reference
+        // inputs are optional extras it supports but aren't required —
+        // include them only if the caller happened to supply any.
+        requestBody = {
+          prompt,
+          duration: params.duration ?? 5,
+          resolution,
+          aspect_ratio: params.aspectRatio || "16:9",
+          generate_audio: true,
+        };
+        if (videoUrl) requestBody.video_url = videoUrl;
+        if (imageUrls.length > 0) requestBody.image_urls = imageUrls;
+      }
+
+      const body = await higgsfieldRequest<HiggsfieldSubmitResponse>(`${HIGGSFIELD_API_BASE}/${modelPath}`, {
+        method: "POST",
+        body: JSON.stringify(requestBody),
       });
 
       if (!body.request_id) {
