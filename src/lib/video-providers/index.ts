@@ -38,6 +38,11 @@ export const MODEL_TO_PROVIDER: Record<string, string> = {
   // videoUrl + imageUrls in the generate() params too. See higgsfield.ts.
   Genjutsu: "genjutsu",
   "Cinema Studio 4.0": "cinema-studio-4.0",
+  // A resold third-party model — routed through Higgsfield rather than the
+  // fal.ai aggregator because it was cheaper per-clip there at time of
+  // writing. Price-check before moving it (or adding another reseller
+  // model) either way; it can flip.
+  "Kling 2.6": "kling-2.6-pro",
 };
 
 export function resolveProviderName(model: string | null | undefined, fallbackProvider: string | null | undefined): string {

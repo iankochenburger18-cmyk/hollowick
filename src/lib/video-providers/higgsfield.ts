@@ -21,17 +21,67 @@ export const HIGGSFIELD_MODEL_PATHS: Record<string, string> = {
   // "Genjutsu" (see MODEL_TO_PROVIDER in index.ts and the
   // data-hw-genjutsu-fields block in studio.js).
   genjutsu: "higgsfield/genjutsu/motion-transfer/v1.0",
-  // Cinema Studio 4.0: plain text-to-video with automatic scene direction.
-  // Takes prompt/duration/resolution/aspect_ratio/generate_audio like any
-  // other prompt-driven model — reference image/video inputs are optional
-  // extras it supports but that the studio UI doesn't send yet.
+  // Cinema Studio 4.0: Higgsfield's own text-to-video model with automatic
+  // scene direction.
   "cinema-studio-4.0": "higgsfield/cinema-studio/4.0",
+  // Kling 2.6 Pro: a third-party model Higgsfield resells (not under the
+  // "higgsfield/" namespace, unlike the two above) — wired up here instead
+  // of through the fal.ai aggregator because it's cheaper per-clip on
+  // Higgsfield at time of writing. Price-check both before adding another
+  // reseller model either way; it can flip.
+  "kling-2.6-pro": "kling-video/v2.6/pro/text-to-video",
 };
 
-// Models whose generate() requires videoUrl + imageUrls rather than working
-// from a plain text prompt (motion-transfer style, like Genjutsu). Every
-// other Higgsfield model here is plain prompt-driven.
-const REQUIRES_REFERENCE = new Set(["genjutsu"]);
+// Each Higgsfield model expects a different request-body shape (this is a
+// grab-bag aggregator covering Higgsfield's own models plus resold
+// third-party ones, and every provider has its own parameter names) — so
+// every entry in HIGGSFIELD_MODEL_PATHS needs a matching builder here.
+// createHiggsfieldProvider() below fails fast at startup if one is missing,
+// rather than silently sending the wrong shape to a model that happens to
+// accept a similar-looking body.
+type HiggsfieldBodyBuilder = (params: VideoGenerateParams) => Record<string, unknown>;
+
+/** Shared by motion-transfer-style models: requires a reference video + one or more images, not just a prompt. */
+function referenceBody(params: VideoGenerateParams): Record<string, unknown> {
+  const videoUrl = typeof params.videoUrl === "string" ? params.videoUrl : undefined;
+  const imageUrls = Array.isArray(params.imageUrls)
+    ? params.imageUrls.filter((url): url is string => typeof url === "string" && url.length > 0)
+    : [];
+
+  if (!videoUrl) {
+    throw new VideoProviderError("videoUrl (a reference video URL) is required for this model", "invalid_params");
+  }
+  if (imageUrls.length === 0) {
+    throw new VideoProviderError("imageUrls (one or more character/product image URLs) is required for this model", "invalid_params");
+  }
+
+  return {
+    video_url: videoUrl,
+    image_urls: imageUrls,
+    prompt: params.prompt || undefined,
+    resolution: params.resolution === "480p" ? "480p" : "720p",
+  };
+}
+
+const HIGGSFIELD_MODEL_BODIES: Record<string, HiggsfieldBodyBuilder> = {
+  genjutsu: referenceBody,
+
+  "cinema-studio-4.0": (params) => ({
+    prompt: params.prompt,
+    duration: params.duration ?? 5,
+    resolution: params.resolution === "480p" ? "480p" : "720p",
+    aspect_ratio: params.aspectRatio || "16:9",
+    generate_audio: true,
+  }),
+
+  "kling-2.6-pro": (params) => ({
+    prompt: params.prompt,
+    duration: params.duration ?? 5,
+    aspect_ratio: params.aspectRatio || "16:9",
+    sound: "on",
+    cfg_scale: 0.5,
+  }),
+};
 
 interface HiggsfieldSubmitResponse {
   status: string;
@@ -122,49 +172,18 @@ function mapStatus(status: string): VideoStatusResult["status"] {
  * that key is what /api/generate's model→provider map should point at.
  */
 export function createHiggsfieldProvider(name: string, modelPath: string): VideoProvider {
-  const requiresReference = REQUIRES_REFERENCE.has(name);
+  const buildBody = HIGGSFIELD_MODEL_BODIES[name];
+  if (!buildBody) {
+    throw new Error(
+      `No request-body builder registered for Higgsfield model "${name}" — add one to HIGGSFIELD_MODEL_BODIES in higgsfield.ts`
+    );
+  }
 
   return {
     name,
 
     async generate(params: VideoGenerateParams): Promise<VideoGenerateResult> {
-      const { prompt } = params;
-
-      const videoUrl = typeof params.videoUrl === "string" ? params.videoUrl : undefined;
-      const imageUrls = Array.isArray(params.imageUrls)
-        ? params.imageUrls.filter((url): url is string => typeof url === "string" && url.length > 0)
-        : [];
-      const resolution = params.resolution === "480p" ? "480p" : "720p";
-
-      let requestBody: Record<string, unknown>;
-
-      if (requiresReference) {
-        if (!videoUrl) {
-          throw new VideoProviderError("videoUrl (a reference video URL) is required for this model", "invalid_params");
-        }
-        if (imageUrls.length === 0) {
-          throw new VideoProviderError("imageUrls (one or more character/product image URLs) is required for this model", "invalid_params");
-        }
-        requestBody = {
-          video_url: videoUrl,
-          image_urls: imageUrls,
-          prompt: prompt || undefined,
-          resolution,
-        };
-      } else {
-        // Plain prompt-driven model (e.g. Cinema Studio 4.0). Reference
-        // inputs are optional extras it supports but aren't required —
-        // include them only if the caller happened to supply any.
-        requestBody = {
-          prompt,
-          duration: params.duration ?? 5,
-          resolution,
-          aspect_ratio: params.aspectRatio || "16:9",
-          generate_audio: true,
-        };
-        if (videoUrl) requestBody.video_url = videoUrl;
-        if (imageUrls.length > 0) requestBody.image_urls = imageUrls;
-      }
+      const requestBody = buildBody(params);
 
       const body = await higgsfieldRequest<HiggsfieldSubmitResponse>(`${HIGGSFIELD_API_BASE}/${modelPath}`, {
         method: "POST",
