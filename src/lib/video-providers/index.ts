@@ -43,6 +43,19 @@ export const MODEL_TO_PROVIDER: Record<string, string> = {
   // writing. Price-check before moving it (or adding another reseller
   // model) either way; it can flip.
   "Kling 2.6": "kling-2.6-pro",
+  // Batch of 9 more resold third-party models, all routed through
+  // Higgsfield without individual price-checks (see higgsfield.ts).
+  // Kling 2.5 is image-to-video — needs `imageUrl` in the generate() params
+  // (see IMAGE_INPUT_MODELS in the frontend's studio.js).
+  "Kling 2.5": "kling-2.5-standard",
+  "Seedance 2.0": "seedance-2.0",
+  "Wan 3.0": "wan-3.0",
+  "Wan 2.7": "wan-2.7",
+  "MiniMax Hailuo": "minimax-hailuo-2.3",
+  "LTX 2.5 Fast": "ltx-2.5-fast",
+  "LTX 2.5 Pro": "ltx-2.5-pro",
+  "Happy Horse 1.1": "happy-horse-1.1",
+  "Happy Horse 1.0": "happy-horse-1.0",
 };
 
 export function resolveProviderName(model: string | null | undefined, fallbackProvider: string | null | undefined): string {

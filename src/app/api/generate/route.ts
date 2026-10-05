@@ -26,6 +26,9 @@ export async function POST(request: Request) {
   const imageUrls = Array.isArray(body?.imageUrls)
     ? body.imageUrls.filter((url: unknown): url is string => typeof url === "string" && url.length > 0)
     : undefined;
+  // Singular reference image, only used by image-to-video models like
+  // Kling 2.5 (see MODEL_TO_PROVIDER and higgsfield.ts) — ignored otherwise.
+  const imageUrl = typeof body?.imageUrl === "string" ? body.imageUrl : undefined;
   const resolution = typeof body?.resolution === "string" ? body.resolution : undefined;
 
   if (!prompt) {
@@ -50,7 +53,7 @@ export async function POST(request: Request) {
   });
 
   try {
-    const { jobId: providerJobId } = await provider.generate({ prompt, duration, aspectRatio, videoUrl, imageUrls, resolution });
+    const { jobId: providerJobId } = await provider.generate({ prompt, duration, aspectRatio, videoUrl, imageUrls, imageUrl, resolution });
 
     await prisma.generationJob.update({
       where: { id: job.id },

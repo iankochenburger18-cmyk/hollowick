@@ -30,6 +30,20 @@ export const HIGGSFIELD_MODEL_PATHS: Record<string, string> = {
   // Higgsfield at time of writing. Price-check both before adding another
   // reseller model either way; it can flip.
   "kling-2.6-pro": "kling-video/v2.6/pro/text-to-video",
+
+  // Batch of 9 more resold third-party models, all routed through
+  // Higgsfield rather than fal.ai per an explicit decision to skip
+  // per-model price-checking for this batch (the endpoints were already
+  // gathered here) — revisit per-model if pricing becomes a concern later.
+  "kling-2.5-standard": "kling-video/v2.5-turbo/standard/image-to-video",
+  "seedance-2.0": "bytedance/seedance-2.0/text-to-video",
+  "wan-3.0": "alibaba/wan-3.0/text-to-video",
+  "wan-2.7": "wan/v2.7/text-to-video",
+  "minimax-hailuo-2.3": "minimax/hailuo-2.3/standard/text-to-video",
+  "ltx-2.5-fast": "lightricks/ltx-2.5/text-to-video/fast",
+  "ltx-2.5-pro": "lightricks/ltx-2.5/text-to-video/pro",
+  "happy-horse-1.1": "alibaba/happy-horse/v1.1/text-to-video",
+  "happy-horse-1.0": "alibaba/happy-horse/text-to-video",
 };
 
 // Each Higgsfield model expects a different request-body shape (this is a
@@ -63,16 +77,57 @@ function referenceBody(params: VideoGenerateParams): Record<string, unknown> {
   };
 }
 
-const HIGGSFIELD_MODEL_BODIES: Record<string, HiggsfieldBodyBuilder> = {
-  genjutsu: referenceBody,
+/** Shared by Kling 2.5 (image-to-video): requires a single reference image, not just a prompt. */
+function singleImageBody(params: VideoGenerateParams): Record<string, unknown> {
+  const imageUrl = typeof params.imageUrl === "string" ? params.imageUrl : undefined;
+  if (!imageUrl) {
+    throw new VideoProviderError("imageUrl (a reference image URL) is required for this model", "invalid_params");
+  }
+  return {
+    prompt: params.prompt,
+    duration: params.duration ?? 5,
+    cfg_scale: 0.5,
+    image_url: imageUrl,
+    negative_prompt: "",
+  };
+}
 
-  "cinema-studio-4.0": (params) => ({
+/** Plain text-to-video shape shared by Cinema Studio 4.0 and Seedance 2.0. */
+function plainAudioBody(params: VideoGenerateParams): Record<string, unknown> {
+  return {
     prompt: params.prompt,
     duration: params.duration ?? 5,
     resolution: params.resolution === "480p" ? "480p" : "720p",
     aspect_ratio: params.aspectRatio || "16:9",
     generate_audio: true,
-  }),
+  };
+}
+
+/** Plain text-to-video shape shared by the two LTX 2.5 tiers (fast/pro differ only by modelPath). */
+function ltxBody(params: VideoGenerateParams): Record<string, unknown> {
+  return {
+    prompt: params.prompt,
+    duration: params.duration ?? 5,
+    resolution: params.resolution === "480p" ? "480p" : "720p",
+    aspect_ratio: params.aspectRatio || "16:9",
+    fps: 25,
+  };
+}
+
+/** Plain text-to-video shape shared by the two Happy Horse versions (1.1/1.0 differ only by modelPath) — no audio field. */
+function happyHorseBody(params: VideoGenerateParams): Record<string, unknown> {
+  return {
+    prompt: params.prompt,
+    duration: params.duration ?? 5,
+    resolution: params.resolution === "480p" ? "480p" : "720p",
+    aspect_ratio: params.aspectRatio || "16:9",
+  };
+}
+
+const HIGGSFIELD_MODEL_BODIES: Record<string, HiggsfieldBodyBuilder> = {
+  genjutsu: referenceBody,
+
+  "cinema-studio-4.0": plainAudioBody,
 
   "kling-2.6-pro": (params) => ({
     prompt: params.prompt,
@@ -81,6 +136,40 @@ const HIGGSFIELD_MODEL_BODIES: Record<string, HiggsfieldBodyBuilder> = {
     sound: "on",
     cfg_scale: 0.5,
   }),
+
+  "kling-2.5-standard": singleImageBody,
+
+  "seedance-2.0": plainAudioBody,
+
+  "wan-3.0": (params) => ({
+    prompt: params.prompt,
+    duration: params.duration ?? 5,
+    resolution: params.resolution === "480p" ? "480p" : "720p",
+    aspect_ratio: params.aspectRatio || "16:9",
+    generate_audio: true,
+    enable_thinking: false,
+  }),
+
+  "wan-2.7": (params) => ({
+    prompt: params.prompt,
+    duration: params.duration ?? 5,
+    resolution: params.resolution === "480p" ? "480p" : "720p",
+    aspect_ratio: params.aspectRatio || "16:9",
+    prompt_extend: false,
+    negative_prompt: "",
+  }),
+
+  "minimax-hailuo-2.3": (params) => ({
+    prompt: params.prompt,
+    duration: params.duration ?? 6,
+    prompt_optimizer: true,
+  }),
+
+  "ltx-2.5-fast": ltxBody,
+  "ltx-2.5-pro": ltxBody,
+
+  "happy-horse-1.1": happyHorseBody,
+  "happy-horse-1.0": happyHorseBody,
 };
 
 interface HiggsfieldSubmitResponse {
