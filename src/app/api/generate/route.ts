@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { generationQueue } from "@/lib/queue";
 import { getVideoProvider, resolveProviderName, VideoProviderError } from "@/lib/video-providers";
+import { PLAN_CONFIG, computeCurrentPeriod, creditCostForModel, isModelAllowed, type PlanTierName } from "@/lib/plans";
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -35,6 +36,74 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "prompt is required." }, { status: 400 });
   }
 
+  // --- Plan gating: which models this account can use, and whether it has
+  // enough credits left this period. Every billable generation must go
+  // through a recognized model name (MODEL_CREDIT_COST) — the bare
+  // `provider` override still resolves an adapter above for back-compat,
+  // but it can't be charged or plan-checked, so it's rejected here.
+  const subscription = await prisma.subscription.findUnique({
+    where: { userId: session.user.id },
+  });
+  if (!subscription) {
+    return NextResponse.json(
+      { error: "No plan found for this account. Contact support to get a plan assigned." },
+      { status: 403 }
+    );
+  }
+
+  const tier = subscription.planTier as PlanTierName;
+  const plan = PLAN_CONFIG[tier];
+  const period = computeCurrentPeriod(tier, subscription.currentPeriodStart);
+
+  if (tier === "TRIAL" && period.elapsed) {
+    return NextResponse.json(
+      { error: "Your 7-day free trial has ended. Pick a plan to keep generating." },
+      { status: 402 }
+    );
+  }
+
+  if (!model || !isModelAllowed(tier, model)) {
+    return NextResponse.json(
+      { error: `Your plan (${plan.label}) doesn't include this model.` },
+      { status: 403 }
+    );
+  }
+
+  const creditCost = creditCostForModel(model);
+  if (creditCost === null) {
+    return NextResponse.json({ error: "Unknown model." }, { status: 400 });
+  }
+
+  // Lazy monthly rollover for paid tiers — persist the advanced window the
+  // first time a request lands after it elapsed, so Supabase reads (and
+  // this same calculation next time) see the up-to-date period.
+  if (period.start.getTime() !== subscription.currentPeriodStart.getTime()) {
+    await prisma.subscription.update({
+      where: { userId: session.user.id },
+      data: { currentPeriodStart: period.start, currentPeriodEnd: period.end },
+    });
+  }
+
+  const usage = await prisma.generationJob.aggregate({
+    _sum: { costCents: true },
+    where: {
+      userId: session.user.id,
+      createdAt: { gte: period.start },
+      status: { not: "FAILED" },
+    },
+  });
+  const creditsUsed = usage._sum.costCents ?? 0;
+  const creditsRemaining = plan.monthlyCredits - creditsUsed;
+
+  if (creditsRemaining < creditCost) {
+    return NextResponse.json(
+      {
+        error: `Not enough credits left this period (${creditsRemaining} remaining, this generation costs ${creditCost}).`,
+      },
+      { status: 402 }
+    );
+  }
+
   let provider;
   try {
     provider = getVideoProvider(providerName);
@@ -49,6 +118,7 @@ export async function POST(request: Request) {
       provider: providerName,
       prompt,
       status: "QUEUED",
+      costCents: creditCost,
     },
   });
 

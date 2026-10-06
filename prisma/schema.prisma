@@ -29,7 +29,9 @@ model CreditBalance {
 }
 
 enum PlanTier {
+  TRIAL
   STARTER
+  CREATOR
   PRO
   STUDIO
 }
@@ -38,10 +40,17 @@ model Subscription {
   id                   String    @id @default(cuid())
   userId               String    @unique
   user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  planTier             PlanTier  @default(STARTER)
+  planTier             PlanTier  @default(TRIAL)
   stripeCustomerId     String?
   stripeSubscriptionId String?
   status               String?
+  // Start of the *current* credit period — for TRIAL this is set once at
+  // signup and never moves (the 7-day trial only ever has one period); for
+  // paid tiers it's rolled forward lazily (see src/lib/plans.ts) each time
+  // a monthly period elapses. currentPeriodEnd is derived from this plus
+  // the plan's period length, but we also persist it so it's readable
+  // directly from Supabase Studio/SQL without re-implementing the logic.
+  currentPeriodStart   DateTime  @default(now())
   currentPeriodEnd     DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt

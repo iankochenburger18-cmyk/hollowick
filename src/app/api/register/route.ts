@@ -26,6 +26,10 @@ export async function POST(request: Request) {
       email,
       passwordHash,
       creditBalance: { create: { balance: 0 } },
+      // Every new signup starts on a 7-day free trial with access to every
+      // model (see PLAN_CONFIG.TRIAL in src/lib/plans.ts) and a credit
+      // budget capped well under $5 of real provider cost.
+      subscription: { create: { planTier: "TRIAL", currentPeriodStart: new Date() } },
     },
   });
 
