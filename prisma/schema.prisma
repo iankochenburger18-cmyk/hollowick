@@ -3,8 +3,16 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // Runtime connection — point this at Supabase's pooled ("Transaction")
+  // connection string. The app/worker hold it open long-term, so pooling
+  // keeps us from exhausting Supabase's connection limit.
+  url       = env("DATABASE_URL")
+  // Supabase's pooler (PgBouncer, transaction mode) doesn't support the
+  // prepared statements/advisory locks `prisma migrate` needs, so
+  // migrations run over a direct (non-pooled) connection instead — same
+  // database, different connection string. See .env.example.
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
