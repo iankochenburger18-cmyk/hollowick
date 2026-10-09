@@ -48,7 +48,14 @@ model Subscription {
   id                   String    @id @default(cuid())
   userId               String    @unique
   user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  planTier             PlanTier  @default(TRIAL)
+  // Stays STARTER (an enum value that already existed before this round of
+  // changes) rather than TRIAL on purpose: Postgres refuses to let a single
+  // migration both add a new enum value and use it as a column default in
+  // the same transaction ("new enum values must be committed before they
+  // can be used"). This column default is just a fallback anyway — every
+  // real signup explicitly sets planTier: "TRIAL" itself, see
+  // src/app/api/register/route.ts.
+  planTier             PlanTier  @default(STARTER)
   stripeCustomerId     String?
   stripeSubscriptionId String?
   status               String?
