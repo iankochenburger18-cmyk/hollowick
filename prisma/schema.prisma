@@ -67,6 +67,14 @@ model Subscription {
   // directly from Supabase Studio/SQL without re-implementing the logic.
   currentPeriodStart   DateTime  @default(now())
   currentPeriodEnd     DateTime?
+  // Set automatically (by a DB trigger — see the add_first_paid_at
+  // migration) the first time this account's planTier moves off TRIAL onto
+  // any paid tier. Stays null for accounts still on (or that never left)
+  // the free trial. This is what lets admin_user_insights report "when did
+  // they become a paying customer" even though there's no billing/payment
+  // flow yet — today that transition only happens via a manual edit in
+  // Supabase's Table Editor, and the trigger catches it there too.
+  firstPaidAt          DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 }

@@ -1,32 +1,84 @@
--- Admin insights view: every registered user, their plan, and their usage
--- for the current billing/trial period, in one queryable place.
+-- Admin insights view: one row per registered user with everything needed
+-- for a day-to-day look at the account — email, plan, credit balance,
+-- signup date, when (if ever) they first went onto a paid plan, how long
+-- they've been a customer / on their current plan, and their average
+-- monthly credit usage.
 --
--- This is meant to be read straight out of Supabase Studio — open
--- Table Editor (views show up there alongside tables) or the SQL editor
--- and query `admin_user_insights` directly. It answers exactly what was
--- asked for: "see all registered users and what plan they are currently
--- on... the number of generations they did in the current month and the
--- number they have left... and I also want to see their email."
+-- Read straight out of Supabase Studio: open Table Editor (views show up
+-- there alongside tables) or the SQL editor and query
+-- `admin_user_insights` directly.
 --
--- Run this once in the Supabase SQL editor after `prisma migrate deploy`
--- has created the User/Subscription/GenerationJob tables. Re-run it any
--- time you want to pick up a change to this file (CREATE OR REPLACE VIEW
--- is safe to re-run).
+-- Run this in the Supabase SQL editor any time you want to (re-)create or
+-- update it — CREATE OR REPLACE VIEW is safe to re-run. This replaces the
+-- original, simpler version of this file; re-run it even if you already
+-- created the view once before, since the columns have changed.
 --
--- Note on "period_start": paid-tier rollover happens lazily, the next time
--- that user calls POST /api/generate after their period elapses (see
--- src/lib/plans.ts + src/app/api/generate/route.ts). So for a user who
--- hasn't generated anything in a while, period_start/period_end here may
--- reflect their last *recorded* period rather than what it would roll
--- over to right now — credits_remaining_this_period is still accurate
--- against that recorded window, it just hasn't been advanced yet.
+-- Notes on a few columns:
+--   plan_status        — "Free trial (active)" / "Free trial (expired)" /
+--                         "Paid". Trial length (7 days) is hardcoded here
+--                         to match PLAN_CONFIG.TRIAL.periodDays in
+--                         src/lib/plans.ts — if that ever changes, update
+--                         the "+ interval '7 days'" below to match.
+--   first_paid_at       — set automatically by a DB trigger (see the
+--                         add_first_paid_at migration) the first time this
+--                         account's plan moves off TRIAL. Null if it never
+--                         has.
+--   days_as_customer     — days since signup, regardless of plan.
+--   days_on_current_plan — days since first_paid_at if they've ever paid,
+--                         otherwise same as days_as_customer (i.e. still
+--                         measuring time on the free trial).
+--   avg_credits_per_month — lifetime credits used (excluding failed jobs)
+--                         divided by months since signup, floored at 1
+--                         month so a brand-new signup's early usage isn't
+--                         wildly extrapolated into a huge monthly rate.
+--   credits_used_last_30_days — a more current complement to the lifetime
+--                         average, in case usage has sped up or slowed
+--                         down recently.
+--   credit_balance / credits_used_this_period / generations_this_period —
+--                         scoped to the *current* billing or trial period
+--                         (currentPeriodStart onward), same definition the
+--                         app itself uses to decide whether a generation
+--                         request is allowed.
 
 create or replace view admin_user_insights as
+with job_totals as (
+  select
+    "userId",
+    sum("costCents") filter (where status != 'FAILED') as lifetime_credits_used,
+    sum("costCents") filter (
+      where status != 'FAILED' and "createdAt" >= now() - interval '30 days'
+    ) as credits_used_last_30_days
+  from "GenerationJob"
+  group by "userId"
+),
+period_usage as (
+  select
+    g."userId",
+    sum(g."costCents") as credits_used_this_period,
+    count(g.id) as generations_this_period
+  from "GenerationJob" g
+  join "Subscription" s on s."userId" = g."userId"
+  where g.status != 'FAILED' and g."createdAt" >= s."currentPeriodStart"
+  group by g."userId"
+)
 select
   u.id as user_id,
   u.email,
   u."createdAt" as signed_up_at,
   s."planTier" as plan,
+  case
+    when s."planTier" = 'TRIAL' and now() <= s."currentPeriodStart" + interval '7 days'
+      then 'Free trial (active)'
+    when s."planTier" = 'TRIAL'
+      then 'Free trial (expired)'
+    else 'Paid'
+  end as plan_status,
+  s."firstPaidAt" as first_paid_at,
+  extract(day from now() - u."createdAt")::int as days_as_customer,
+  case
+    when s."firstPaidAt" is not null then extract(day from now() - s."firstPaidAt")::int
+    else extract(day from now() - u."createdAt")::int
+  end as days_on_current_plan,
   s."currentPeriodStart" as period_start,
   s."currentPeriodEnd" as period_end,
   case s."planTier"
@@ -36,29 +88,23 @@ select
     when 'PRO' then 10400
     when 'STUDIO' then 21900
   end as monthly_credits,
-  coalesce(
-    sum(g."costCents") filter (
-      where g."createdAt" >= s."currentPeriodStart" and g.status != 'FAILED'
-    ),
-    0
-  ) as credits_used_this_period,
+  coalesce(pu.credits_used_this_period, 0) as credits_used_this_period,
   case s."planTier"
     when 'TRIAL' then 320
     when 'STARTER' then 2400
     when 'CREATOR' then 5100
     when 'PRO' then 10400
     when 'STUDIO' then 21900
-  end - coalesce(
-    sum(g."costCents") filter (
-      where g."createdAt" >= s."currentPeriodStart" and g.status != 'FAILED'
-    ),
-    0
-  ) as credits_remaining_this_period,
-  count(g.id) filter (
-    where g."createdAt" >= s."currentPeriodStart" and g.status != 'FAILED'
-  ) as generations_this_period
+  end - coalesce(pu.credits_used_this_period, 0) as credit_balance,
+  coalesce(pu.generations_this_period, 0) as generations_this_period,
+  round(
+    coalesce(jt.lifetime_credits_used, 0)::numeric
+    / greatest(1, extract(day from now() - u."createdAt") / 30.0),
+    1
+  ) as avg_credits_per_month,
+  coalesce(jt.credits_used_last_30_days, 0) as credits_used_last_30_days
 from "User" u
 left join "Subscription" s on s."userId" = u.id
-left join "GenerationJob" g on g."userId" = u.id
-group by u.id, u.email, u."createdAt", s."planTier", s."currentPeriodStart", s."currentPeriodEnd"
+left join job_totals jt on jt."userId" = u.id
+left join period_usage pu on pu."userId" = u.id
 order by u."createdAt" desc;
