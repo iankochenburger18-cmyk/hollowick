@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { generationQueue } from "@/lib/queue";
 import { getVideoProvider, resolveProviderName, VideoProviderError } from "@/lib/video-providers";
-import { PLAN_CONFIG, computeCurrentPeriod, creditCostForModel, isModelAllowed, type PlanTierName } from "@/lib/plans";
+import { PLAN_CONFIG, computeCurrentPeriod, creditCostForModel, hasActiveAccess, isModelAllowed, type PlanTierName } from "@/lib/plans";
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -55,11 +55,16 @@ export async function POST(request: Request) {
   const plan = PLAN_CONFIG[tier];
   const period = computeCurrentPeriod(tier, subscription.currentPeriodStart);
 
-  if (tier === "TRIAL" && period.elapsed) {
-    return NextResponse.json(
-      { error: "Your 7-day free trial has ended. Pick a plan to keep generating." },
-      { status: 402 }
-    );
+  // Blocks an expired trial same as before, and now also blocks a paid tier
+  // whose Stripe subscription has lapsed (payment failed, cancelled, etc.)
+  // — see hasActiveAccess() in src/lib/plans.ts for exactly which statuses
+  // count as "active".
+  if (!hasActiveAccess(tier, subscription.status, period)) {
+    const message =
+      tier === "TRIAL"
+        ? "Your 7-day free trial has ended. Pick a plan to keep generating."
+        : "Your subscription isn't active. Update your billing to keep generating.";
+    return NextResponse.json({ error: message }, { status: 402 });
   }
 
   if (!model || !isModelAllowed(tier, model)) {

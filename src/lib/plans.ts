@@ -136,3 +136,35 @@ export function computeCurrentPeriod(
   }
   return { start, end, elapsed: false };
 }
+
+// Statuses Stripe reports that mean "this customer currently has working,
+// paid-for access." Kept here (rather than imported from src/lib/stripe.ts)
+// so this file stays a dependency-free pure module — nothing in it needs a
+// Stripe API key just to be imported.
+const ACTIVE_STRIPE_STATUSES = new Set(["active", "trialing"]);
+
+/**
+ * Whether an account should be allowed to generate right now. TRIAL just
+ * follows the period (same as before Stripe existed). A paid tier normally
+ * has access too — `status` is only ever set once a Stripe subscription
+ * exists, so a manually-assigned plan (e.g. edited directly in Supabase's
+ * Table Editor, no Stripe involved) has `status: null` and keeps access.
+ * Once Stripe *is* involved, a status outside ACTIVE_STRIPE_STATUSES means
+ * the subscription was cancelled, a renewal payment failed and it lapsed,
+ * etc. — see customer.subscription.deleted/updated in
+ * src/app/api/billing/webhook/route.ts, which is what sets `status` to
+ * something other than "active"/"trialing" in the first place.
+ */
+export function hasActiveAccess(
+  tier: PlanTierName,
+  status: string | null,
+  period: CreditPeriod
+): boolean {
+  if (tier === "TRIAL") {
+    return !period.elapsed;
+  }
+  if (status && !ACTIVE_STRIPE_STATUSES.has(status)) {
+    return false;
+  }
+  return true;
+}
