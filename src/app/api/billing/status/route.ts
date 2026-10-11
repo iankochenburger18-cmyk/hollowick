@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { getOrCreateSubscription } from "@/lib/subscription";
 import { PLAN_CONFIG, computeCurrentPeriod, hasActiveAccess, type PlanTierName } from "@/lib/plans";
 
 // Lets the separate static frontend (hollowick-site, on Vercel) know who's
@@ -15,15 +15,10 @@ export async function GET() {
     return NextResponse.json({ signedIn: false });
   }
 
-  const subscription = await prisma.subscription.findUnique({
-    where: { userId: session.user.id },
-  });
-
-  const tier = (subscription?.planTier ?? "TRIAL") as PlanTierName;
-  const period = subscription
-    ? computeCurrentPeriod(tier, subscription.currentPeriodStart)
-    : null;
-  const active = period ? hasActiveAccess(tier, subscription?.status ?? null, period) : false;
+  const subscription = await getOrCreateSubscription(session.user.id);
+  const tier = subscription.planTier as PlanTierName;
+  const period = computeCurrentPeriod(tier, subscription.currentPeriodStart);
+  const active = hasActiveAccess(tier, subscription.status, period);
 
   return NextResponse.json({
     signedIn: true,

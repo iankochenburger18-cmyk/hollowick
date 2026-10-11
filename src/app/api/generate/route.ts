@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { generationQueue } from "@/lib/queue";
 import { getVideoProvider, resolveProviderName, VideoProviderError } from "@/lib/video-providers";
+import { getOrCreateSubscription } from "@/lib/subscription";
 import { PLAN_CONFIG, computeCurrentPeriod, creditCostForModel, hasActiveAccess, isModelAllowed, type PlanTierName } from "@/lib/plans";
 
 export async function POST(request: Request) {
@@ -41,15 +42,10 @@ export async function POST(request: Request) {
   // through a recognized model name (MODEL_CREDIT_COST) — the bare
   // `provider` override still resolves an adapter above for back-compat,
   // but it can't be charged or plan-checked, so it's rejected here.
-  const subscription = await prisma.subscription.findUnique({
-    where: { userId: session.user.id },
-  });
-  if (!subscription) {
-    return NextResponse.json(
-      { error: "No plan found for this account. Contact support to get a plan assigned." },
-      { status: 403 }
-    );
-  }
+  // See src/app/api/billing/checkout/route.ts's comment on the same call —
+  // an account without a Subscription row yet gets put on TRIAL instead of
+  // hitting a dead-end error it has no way to resolve itself.
+  const subscription = await getOrCreateSubscription(session.user.id);
 
   const tier = subscription.planTier as PlanTierName;
   const plan = PLAN_CONFIG[tier];

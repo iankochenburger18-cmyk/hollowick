@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getOrCreateSubscription } from "@/lib/subscription";
 import { stripe, priceIdForTier, type PaidPlanTier } from "@/lib/stripe";
 
 const PAID_TIERS: PaidPlanTier[] = ["STARTER", "CREATOR", "PRO", "STUDIO"];
@@ -30,15 +31,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const subscription = await prisma.subscription.findUnique({
-    where: { userId: session.user.id },
-  });
-  if (!subscription) {
-    return NextResponse.json(
-      { error: "No plan found for this account. Contact support to get a plan assigned." },
-      { status: 403 }
-    );
-  }
+  // Every account should have a Subscription row already (new signups get
+  // one on TRIAL immediately — see src/app/api/register/route.ts), but an
+  // older or otherwise-irregular account might not; getOrCreateSubscription
+  // puts it on the same TRIAL default rather than dead-ending here.
+  const subscription = await getOrCreateSubscription(session.user.id);
 
   // Reuse the existing Stripe Customer if this account already has one
   // (e.g. switching plans, or re-subscribing after a cancellation) —
