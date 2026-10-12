@@ -63,6 +63,18 @@ export async function POST(request: Request) {
       line_items: [{ price: priceIdForTier(tier), quantity: 1 }],
       success_url: `${appUrl}/dashboard?checkout=success`,
       cancel_url: `${appUrl}/dashboard?checkout=cancelled`,
+      // This Stripe account has Managed Payments (Stripe's merchant-of-record
+      // mode) enabled by default, which requires every Price's underlying
+      // Product to carry a tax_code — ours don't, so Checkout rejects the
+      // session outright ("the product tax code is missing") before a
+      // customer ever sees it. Managed Payments isn't something this project
+      // is set up for (no product tax codes assigned, no tax settings
+      // configured for it), so turn it off per-session rather than firing
+      // every single checkout attempt into that wall. See
+      // https://docs.stripe.com/payments/managed-payments if that's ever
+      // wanted later — it'd mean assigning a tax_code to each of the four
+      // Prices in the Stripe Dashboard first.
+      managed_payments: { enabled: false },
       // Carried onto the Subscription Stripe creates too (subscription_data
       // below), not just the Checkout Session — the webhook's
       // checkout.session.completed handler reads this to know which of our
