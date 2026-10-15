@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import { issueVerificationEmail } from "@/lib/email-verification";
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
@@ -32,6 +33,17 @@ export async function POST(request: Request) {
       subscription: { create: { planTier: "TRIAL", currentPeriodStart: new Date() } },
     },
   });
+
+  // Best-effort: a Resend outage or missing RESEND_API_KEY shouldn't block
+  // signup — the account works immediately either way (unverified accounts
+  // can sign in and use their trial same as any other, see
+  // emailVerifiedAt on the User model), and a missed/failed send can always
+  // be retried later via POST /api/verify-email/resend.
+  try {
+    await issueVerificationEmail(user.id, user.email);
+  } catch (err) {
+    console.error(`register: failed to send verification email to ${user.email}:`, err);
+  }
 
   return NextResponse.json({ id: user.id, email: user.email }, { status: 201 });
 }

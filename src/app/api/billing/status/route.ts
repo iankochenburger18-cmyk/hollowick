@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import { getOrCreateSubscription } from "@/lib/subscription";
 import { PLAN_CONFIG, computeCurrentPeriod, hasActiveAccess, type PlanTierName } from "@/lib/plans";
 
@@ -15,7 +16,12 @@ export async function GET() {
     return NextResponse.json({ signedIn: false });
   }
 
-  const subscription = await getOrCreateSubscription(session.user.id);
+  const [subscription, user] = await Promise.all([
+    getOrCreateSubscription(session.user.id),
+    // Only emailVerifiedAt is needed here — the session JWT already carries
+    // id/email, and this keeps the query from pulling the passwordHash etc.
+    prisma.user.findUnique({ where: { id: session.user.id }, select: { emailVerifiedAt: true } }),
+  ]);
   const tier = subscription.planTier as PlanTierName;
   const period = computeCurrentPeriod(tier, subscription.currentPeriodStart);
   const active = hasActiveAccess(tier, subscription.status, period);
@@ -23,6 +29,10 @@ export async function GET() {
   return NextResponse.json({
     signedIn: true,
     email: session.user.email,
+    // Drives the studio's "confirm your email" nudge (src/studio.js) — see
+    // the AskUserQuestion decision this feature was built around: unverified
+    // accounts keep full access, this is a nudge only, never a gate.
+    emailVerified: Boolean(user?.emailVerifiedAt),
     tier,
     label: PLAN_CONFIG[tier].label,
     // Whether this account currently has working access on that tier — a

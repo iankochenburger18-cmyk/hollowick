@@ -20,12 +20,35 @@ model User {
   email        String   @unique
   passwordHash String
   name         String?
+  // Null until the confirmation link (see /api/verify-email) is clicked.
+  // Signed-in access never depends on this being set — unverified accounts
+  // can sign in and use their trial same as any other — it only drives
+  // whether the studio shows a "confirm your email" nudge.
+  emailVerifiedAt DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  creditBalance   CreditBalance?
-  subscription    Subscription?
-  generationJobs  GenerationJob[]
+  creditBalance            CreditBalance?
+  subscription             Subscription?
+  generationJobs           GenerationJob[]
+  emailVerificationTokens  EmailVerificationToken[]
+}
+
+// A single-use link sent by /api/register (and re-issuable via POST
+// /api/verify-email/resend) to confirm an account's email address. Only
+// tokenHash is ever stored — the raw token lives in the emailed link and
+// nowhere else, so a database read alone can't be used to confirm an
+// account. /api/verify-email deletes every row for a user once one of
+// theirs is successfully used, so a stale earlier link stops working too.
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model CreditBalance {
@@ -75,6 +98,13 @@ model Subscription {
   // flow yet — today that transition only happens via a manual edit in
   // Supabase's Table Editor, and the trigger catches it there too.
   firstPaidAt          DateTime?
+  // Lifecycle-email bookkeeping for TRIAL accounts (see the worker's hourly
+  // lifecycle-emails job) — each stamped the first time its email actually
+  // goes out, so a repeat run of the hourly scan never sends either one
+  // twice. Both stay null for any account that reaches a paid tier before
+  // its trial would have ended.
+  trialReminderSentAt   DateTime?
+  trialEndedEmailSentAt DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 }

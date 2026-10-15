@@ -1,0 +1,430 @@
+From 0231999733cf72fda0807a586ea2397fa525f7b1 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 29 Sep 2026 03:30:11 +0000
+Subject: [PATCH 1/4] Wire up PixVerse v6 via the fal.ai aggregator
+
+Registers fal-ai/pixverse/v6/text-to-video as "pixverse-v6" and maps
+the studio's "PixVerse v6" dropdown label to it, same pattern as the
+Seedance 2.5 addition.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_012dci85jSEocsu1J4QKJbLT
+---
+ src/lib/video-providers/fal.ts   | 2 +-
+ src/lib/video-providers/index.ts | 1 +
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/lib/video-providers/fal.ts b/src/lib/video-providers/fal.ts
+index ab5cc9d..fb4a673 100644
+--- a/src/lib/video-providers/fal.ts
++++ b/src/lib/video-providers/fal.ts
+@@ -20,7 +20,7 @@ export const FAL_MODEL_IDS: Record<string, string> = {
+   // directly rather than a "fal-ai/" prefix — copy whatever's actually in
+   // the "API" tab's code sample, not necessarily "fal-ai/...".
+   "seedance-2.5": "bytedance/seedance-2.5/text-to-video",
+-  // "fal-pixverse": "fal-ai/pixverse/v5/text-to-video",
++  "pixverse-v6": "fal-ai/pixverse/v6/text-to-video",
+   // "fal-wan": "fal-ai/wan/v3/text-to-video",
+ };
+ 
+diff --git a/src/lib/video-providers/index.ts b/src/lib/video-providers/index.ts
+index b0ed87c..5959035 100644
+--- a/src/lib/video-providers/index.ts
++++ b/src/lib/video-providers/index.ts
+@@ -27,6 +27,7 @@ export const MODEL_TO_PROVIDER: Record<string, string> = {
+   "Kling 3.0": "kling",
+   "Gen-4.5": "runway",
+   "Seedance 2.5": "seedance-2.5",
++  "PixVerse v6": "pixverse-v6",
+ };
+ 
+ export function resolveProviderName(model: string | null | undefined, fallbackProvider: string | null | undefined): string {
+-- 
+2.43.0
+
+
+From ebd1de83e6e0bd07e90889d867a924a0c0c72de8 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 29 Sep 2026 04:17:13 +0000
+Subject: [PATCH 2/4] Wire up MiniMax H3 Max Turbo and Wan 3.0 Prime via the
+ fal.ai aggregator
+
+---
+ src/lib/video-providers/fal.ts   | 3 ++-
+ src/lib/video-providers/index.ts | 2 ++
+ 2 files changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/src/lib/video-providers/fal.ts b/src/lib/video-providers/fal.ts
+index fb4a673..dc4be0a 100644
+--- a/src/lib/video-providers/fal.ts
++++ b/src/lib/video-providers/fal.ts
+@@ -21,7 +21,8 @@ export const FAL_MODEL_IDS: Record<string, string> = {
+   // the "API" tab's code sample, not necessarily "fal-ai/...".
+   "seedance-2.5": "bytedance/seedance-2.5/text-to-video",
+   "pixverse-v6": "fal-ai/pixverse/v6/text-to-video",
+-  // "fal-wan": "fal-ai/wan/v3/text-to-video",
++  "minimax-h3-max-turbo": "minimax/h3-max-turbo/text-to-video",
++  "wan-3.0-prime": "alibaba/wan-3.0-prime/text-to-video",
+ };
+ 
+ interface FalQueueSubmitResponse {
+diff --git a/src/lib/video-providers/index.ts b/src/lib/video-providers/index.ts
+index 5959035..8474251 100644
+--- a/src/lib/video-providers/index.ts
++++ b/src/lib/video-providers/index.ts
+@@ -28,6 +28,8 @@ export const MODEL_TO_PROVIDER: Record<string, string> = {
+   "Gen-4.5": "runway",
+   "Seedance 2.5": "seedance-2.5",
+   "PixVerse v6": "pixverse-v6",
++  "MiniMax H3 Max Turbo": "minimax-h3-max-turbo",
++  "Wan 3.0 Prime": "wan-3.0-prime",
+ };
+ 
+ export function resolveProviderName(model: string | null | undefined, fallbackProvider: string | null | undefined): string {
+-- 
+2.43.0
+
+
+From 8cb9f5ecaa1efcea07229199d42cef97ff0427c0 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 29 Sep 2026 04:35:38 +0000
+Subject: [PATCH 3/4] Wire up Higgsfield Genjutsu (motion transfer) via its own
+ developer API
+
+---
+ .env.example                          |   6 +
+ src/app/api/generate/route.ts         |   9 +-
+ src/lib/video-providers/higgsfield.ts | 172 ++++++++++++++++++++++++++
+ src/lib/video-providers/index.ts      |   7 ++
+ 4 files changed, 193 insertions(+), 1 deletion(-)
+ create mode 100644 src/lib/video-providers/higgsfield.ts
+
+diff --git a/.env.example b/.env.example
+index 1c88a7e..a088764 100644
+--- a/.env.example
++++ b/.env.example
+@@ -51,3 +51,9 @@ KLING_SECRET_KEY=kling-secret-key-placeholder
+ # fal.ai — one key covers every fal-* provider registered in
+ # src/lib/video-providers/fal.ts (FAL_MODEL_IDS).
+ FAL_API_KEY=fal-placeholder
++# Higgsfield — its own developer API (api.higgsfield.ai), separate from
++# fal.ai. Get a key pair at console.higgsfield.ai. Covers every model
++# registered in src/lib/video-providers/higgsfield.ts (HIGGSFIELD_MODEL_PATHS),
++# e.g. Genjutsu.
++HIGGSFIELD_API_KEY_ID=higgsfield-key-id-placeholder
++HIGGSFIELD_API_KEY_SECRET=higgsfield-key-secret-placeholder
+diff --git a/src/app/api/generate/route.ts b/src/app/api/generate/route.ts
+index af182f5..185311f 100644
+--- a/src/app/api/generate/route.ts
++++ b/src/app/api/generate/route.ts
+@@ -20,6 +20,13 @@ export async function POST(request: Request) {
+   const providerName = resolveProviderName(model, explicitProvider);
+   const duration = typeof body?.duration === "number" ? body.duration : undefined;
+   const aspectRatio = typeof body?.aspectRatio === "string" ? body.aspectRatio : undefined;
++  // Only used by reference-driven models like Genjutsu (see MODEL_TO_PROVIDER
++  // and higgsfield.ts) — ignored by every other provider's generate().
++  const videoUrl = typeof body?.videoUrl === "string" ? body.videoUrl : undefined;
++  const imageUrls = Array.isArray(body?.imageUrls)
++    ? body.imageUrls.filter((url: unknown): url is string => typeof url === "string" && url.length > 0)
++    : undefined;
++  const resolution = typeof body?.resolution === "string" ? body.resolution : undefined;
+ 
+   if (!prompt) {
+     return NextResponse.json({ error: "prompt is required." }, { status: 400 });
+@@ -43,7 +50,7 @@ export async function POST(request: Request) {
+   });
+ 
+   try {
+-    const { jobId: providerJobId } = await provider.generate({ prompt, duration, aspectRatio });
++    const { jobId: providerJobId } = await provider.generate({ prompt, duration, aspectRatio, videoUrl, imageUrls, resolution });
+ 
+     await prisma.generationJob.update({
+       where: { id: job.id },
+diff --git a/src/lib/video-providers/higgsfield.ts b/src/lib/video-providers/higgsfield.ts
+new file mode 100644
+index 0000000..a4b73a1
+--- /dev/null
++++ b/src/lib/video-providers/higgsfield.ts
+@@ -0,0 +1,172 @@
++import type { VideoGenerateParams, VideoGenerateResult, VideoProvider, VideoStatusResult } from "./types";
++import { VideoProviderError } from "./types";
++
++// Higgsfield — https://higgsfield.ai — runs its own developer API at
++// api.higgsfield.ai, separate from fal.ai. One key pair covers every model
++// registered in HIGGSFIELD_MODEL_PATHS below (mirrors the fal.ts aggregator
++// pattern), so adding another Higgsfield model later is a one-line addition
++// here rather than a new file.
++//
++// Auth and the async submit/poll shape below are Higgsfield's documented
++// REST protocol (https://docs.higgsfield.ai/docs) — verify against their
++// docs before relying on this in production, since exact fields can change.
++const HIGGSFIELD_API_BASE = "https://api.higgsfield.ai";
++
++export const HIGGSFIELD_MODEL_PATHS: Record<string, string> = {
++  // Motion transfer: copies motion from a reference video onto one or more
++  // character/product images. Unlike every other provider in this codebase,
++  // this model does NOT work from a plain text prompt alone — generate()
++  // below requires `videoUrl` and `imageUrls` in the params too. The studio
++  // frontend only collects/sends those when the selected model is
++  // "Genjutsu" (see MODEL_TO_PROVIDER in index.ts and the
++  // data-hw-genjutsu-fields block in studio.js).
++  genjutsu: "higgsfield/genjutsu/motion-transfer/v1.0",
++};
++
++interface HiggsfieldSubmitResponse {
++  status: string;
++  request_id?: string;
++}
++
++interface HiggsfieldStatusResponse {
++  status: "queued" | "in_progress" | "completed" | "failed" | "nsfw" | "canceled" | string;
++  video?: { url?: string };
++  error?: string;
++}
++
++function requireAuthHeader(): string {
++  const keyId = process.env.HIGGSFIELD_API_KEY_ID;
++  const keySecret = process.env.HIGGSFIELD_API_KEY_SECRET;
++  if (!keyId || !keySecret) {
++    throw new VideoProviderError(
++      "HIGGSFIELD_API_KEY_ID and HIGGSFIELD_API_KEY_SECRET must both be set — get a key pair from console.higgsfield.ai",
++      "missing_api_key"
++    );
++  }
++  return `Key ${keyId}:${keySecret}`;
++}
++
++async function higgsfieldRequest<T>(url: string, init: RequestInit): Promise<T> {
++  const authHeader = requireAuthHeader();
++
++  let response: Response;
++  try {
++    response = await fetch(url, {
++      ...init,
++      headers: {
++        "Content-Type": "application/json",
++        Authorization: authHeader,
++        ...init.headers,
++      },
++    });
++  } catch (err) {
++    throw new VideoProviderError(
++      `Failed to reach the Higgsfield API: ${err instanceof Error ? err.message : String(err)}`,
++      "network_error"
++    );
++  }
++
++  if (response.status === 401 || response.status === 403) {
++    const body = await response.text().catch(() => "");
++    throw new VideoProviderError(
++      `Higgsfield API rejected the request as unauthorized (HTTP ${response.status}) ${body} — check HIGGSFIELD_API_KEY_ID/HIGGSFIELD_API_KEY_SECRET`.trim(),
++      "auth_error"
++    );
++  }
++
++  if (!response.ok) {
++    const body = await response.text().catch(() => "");
++    throw new VideoProviderError(`Higgsfield API request failed: HTTP ${response.status} ${body}`.trim(), "request_failed");
++  }
++
++  return response.json() as Promise<T>;
++}
++
++function mapStatus(status: string): VideoStatusResult["status"] {
++  switch (status) {
++    case "queued":
++      return "pending";
++    case "in_progress":
++      return "processing";
++    case "completed":
++      return "completed";
++    default:
++      // failed | nsfw | canceled | anything unrecognized — Higgsfield treats
++      // all of these as terminal-but-not-successful, so surface as failed
++      // rather than hang polling forever.
++      return "failed";
++  }
++}
++
++/**
++ * Builds a VideoProvider backed by one Higgsfield model path. Register the
++ * result under whatever key you like in the provider registry (index.ts) —
++ * that key is what /api/generate's model→provider map should point at.
++ */
++export function createHiggsfieldProvider(name: string, modelPath: string): VideoProvider {
++  return {
++    name,
++
++    async generate(params: VideoGenerateParams): Promise<VideoGenerateResult> {
++      const { prompt } = params;
++
++      const videoUrl = typeof params.videoUrl === "string" ? params.videoUrl : undefined;
++      const imageUrls = Array.isArray(params.imageUrls)
++        ? params.imageUrls.filter((url): url is string => typeof url === "string" && url.length > 0)
++        : [];
++      const resolution = params.resolution === "480p" ? "480p" : "720p";
++
++      if (!videoUrl) {
++        throw new VideoProviderError("videoUrl (a reference video URL) is required for this model", "invalid_params");
++      }
++      if (imageUrls.length === 0) {
++        throw new VideoProviderError("imageUrls (one or more character/product image URLs) is required for this model", "invalid_params");
++      }
++
++      const body = await higgsfieldRequest<HiggsfieldSubmitResponse>(`${HIGGSFIELD_API_BASE}/${modelPath}`, {
++        method: "POST",
++        body: JSON.stringify({
++          video_url: videoUrl,
++          image_urls: imageUrls,
++          prompt: prompt || undefined,
++          resolution,
++        }),
++      });
++
++      if (!body.request_id) {
++        throw new VideoProviderError(`Higgsfield API did not return a request_id for ${modelPath}`, "request_failed");
++      }
++
++      return { jobId: body.request_id };
++    },
++
++    async getStatus(jobId: string): Promise<VideoStatusResult> {
++      const body = await higgsfieldRequest<HiggsfieldStatusResponse>(
++        `${HIGGSFIELD_API_BASE}/requests/${jobId}/status`,
++        { method: "GET" }
++      );
++
++      const status = mapStatus(body.status);
++
++      if (status === "failed") {
++        return { status, error: body.error ?? `Higgsfield reported status "${body.status}"` };
++      }
++
++      if (status === "completed") {
++        if (!body.video?.url) {
++          return { status: "failed", error: "Higgsfield reported completion but returned no video URL" };
++        }
++        return { status, videoUrl: body.video.url };
++      }
++
++      return { status };
++    },
++  };
++}
++
++/** Builds one VideoProvider per entry in HIGGSFIELD_MODEL_PATHS, keyed by the same name. */
++export function higgsfieldModelProviders(): Record<string, VideoProvider> {
++  return Object.fromEntries(
++    Object.entries(HIGGSFIELD_MODEL_PATHS).map(([name, modelPath]) => [name, createHiggsfieldProvider(name, modelPath)])
++  );
++}
+diff --git a/src/lib/video-providers/index.ts b/src/lib/video-providers/index.ts
+index 8474251..6cd3b66 100644
+--- a/src/lib/video-providers/index.ts
++++ b/src/lib/video-providers/index.ts
+@@ -5,17 +5,21 @@ import { veoProvider } from "./veo";
+ import { klingProvider } from "./kling";
+ import { runwayProvider } from "./runway";
+ import { falModelProviders } from "./fal";
++import { higgsfieldModelProviders } from "./higgsfield";
+ 
+ // Add a new direct provider by writing its adapter file (matching
+ // VideoProvider) and registering it here — nothing else in the app needs to
+ // change. Add a new fal.ai-backed provider instead by adding one line to
+ // FAL_MODEL_IDS in fal.ts — falModelProviders() picks it up automatically.
++// Same idea for a new Higgsfield-backed provider via HIGGSFIELD_MODEL_PATHS
++// in higgsfield.ts.
+ const registry: Record<string, VideoProvider> = {
+   luma: lumaProvider,
+   veo: veoProvider,
+   kling: klingProvider,
+   runway: runwayProvider,
+   ...falModelProviders(),
++  ...higgsfieldModelProviders(),
+ };
+ 
+ // UI-facing model names (as shown in the studio's model dropdown) mapped to
+@@ -30,6 +34,9 @@ export const MODEL_TO_PROVIDER: Record<string, string> = {
+   "PixVerse v6": "pixverse-v6",
+   "MiniMax H3 Max Turbo": "minimax-h3-max-turbo",
+   "Wan 3.0 Prime": "wan-3.0-prime",
++  // Genjutsu is a motion-transfer model, not plain text-to-video — it needs
++  // videoUrl + imageUrls in the generate() params too. See higgsfield.ts.
++  Genjutsu: "genjutsu",
+ };
+ 
+ export function resolveProviderName(model: string | null | undefined, fallbackProvider: string | null | undefined): string {
+-- 
+2.43.0
+
+
+From 42e5899ad44adf54f19146cf142790880507e984 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 29 Sep 2026 17:41:45 +0000
+Subject: [PATCH 4/4] Support Higgsfield's single combined API key alongside
+ separate id/secret
+
+---
+ .env.example                          | 10 +++++++---
+ src/lib/video-providers/higgsfield.ts | 22 +++++++++++++++-------
+ 2 files changed, 22 insertions(+), 10 deletions(-)
+
+diff --git a/.env.example b/.env.example
+index a088764..eec4d42 100644
+--- a/.env.example
++++ b/.env.example
+@@ -52,8 +52,12 @@ KLING_SECRET_KEY=kling-secret-key-placeholder
+ # src/lib/video-providers/fal.ts (FAL_MODEL_IDS).
+ FAL_API_KEY=fal-placeholder
+ # Higgsfield — its own developer API (api.higgsfield.ai), separate from
+-# fal.ai. Get a key pair at console.higgsfield.ai. Covers every model
+-# registered in src/lib/video-providers/higgsfield.ts (HIGGSFIELD_MODEL_PATHS),
+-# e.g. Genjutsu.
++# fal.ai. Get a key at console.higgsfield.ai — it's issued as a single value
++# already formatted as "key-id:key-secret"; paste the whole thing here as-is.
++# Covers every model registered in src/lib/video-providers/higgsfield.ts
++# (HIGGSFIELD_MODEL_PATHS), e.g. Genjutsu.
++HIGGSFIELD_API_KEY=higgsfield-key-placeholder
++# Only needed if your account instead issued the id/secret as two separate
++# values (rare) — leave unset if HIGGSFIELD_API_KEY above is set.
+ HIGGSFIELD_API_KEY_ID=higgsfield-key-id-placeholder
+ HIGGSFIELD_API_KEY_SECRET=higgsfield-key-secret-placeholder
+diff --git a/src/lib/video-providers/higgsfield.ts b/src/lib/video-providers/higgsfield.ts
+index a4b73a1..aa9bf8d 100644
+--- a/src/lib/video-providers/higgsfield.ts
++++ b/src/lib/video-providers/higgsfield.ts
+@@ -34,16 +34,24 @@ interface HiggsfieldStatusResponse {
+   error?: string;
+ }
+ 
++// console.higgsfield.ai currently issues ONE key that already comes
++// formatted as "<key-id>:<key-secret>" (its own setup snippet says
++// HF_KEY=your-api-key-id:your-api-key-secret) — you copy that whole string
++// as a single value, there's no separate secret field to grab. Some accounts
++// may instead be issued the id/secret as two separate values, so fall back
++// to combining those if that's what's set.
+ function requireAuthHeader(): string {
++  const singleKey = process.env.HIGGSFIELD_API_KEY;
++  if (singleKey) return `Key ${singleKey}`;
++
+   const keyId = process.env.HIGGSFIELD_API_KEY_ID;
+   const keySecret = process.env.HIGGSFIELD_API_KEY_SECRET;
+-  if (!keyId || !keySecret) {
+-    throw new VideoProviderError(
+-      "HIGGSFIELD_API_KEY_ID and HIGGSFIELD_API_KEY_SECRET must both be set — get a key pair from console.higgsfield.ai",
+-      "missing_api_key"
+-    );
+-  }
+-  return `Key ${keyId}:${keySecret}`;
++  if (keyId && keySecret) return `Key ${keyId}:${keySecret}`;
++
++  throw new VideoProviderError(
++    "No Higgsfield credentials set — set HIGGSFIELD_API_KEY to the single key from console.higgsfield.ai (already formatted as key-id:key-secret), or HIGGSFIELD_API_KEY_ID + HIGGSFIELD_API_KEY_SECRET if your account issued them separately",
++    "missing_api_key"
++  );
+ }
+ 
+ async function higgsfieldRequest<T>(url: string, init: RequestInit): Promise<T> {
+-- 
+2.43.0
+

@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { uploadVideoFromUrl } from "@/lib/storage";
 import { GENERATION_QUEUE_NAME, type GenerationJobData } from "@/lib/queue";
 import { getVideoProvider, VideoProviderError } from "@/lib/video-providers";
+import { lifecycleEmailQueue, LIFECYCLE_EMAIL_QUEUE_NAME } from "@/lib/lifecycle-queue";
+import { scanAndSendLifecycleEmails } from "@/worker/lifecycle-emails";
 
 const connection = new IORedis(process.env.REDIS_URL ?? "redis://localhost:6379", {
   maxRetriesPerRequest: null,
@@ -118,3 +120,35 @@ worker.on("error", (err) => {
 worker.on("failed", (job, err) => {
   console.error(`worker: job ${job?.id} failed:`, err);
 });
+
+// Trial lifecycle emails ("your trial ends in 2 days" / "your trial has
+// ended") — a second, independent Worker on its own queue, processing one
+// scan job an hour (see src/worker/lifecycle-emails.ts for the actual
+// logic). Sharing this process's redis `connection` across both Workers is
+// the normal BullMQ pattern — each duplicates it internally as needed for
+// blocking ops, rather than this process opening a second real connection.
+const lifecycleWorker = new Worker(
+  LIFECYCLE_EMAIL_QUEUE_NAME,
+  async () => {
+    await scanAndSendLifecycleEmails();
+  },
+  { connection }
+);
+
+lifecycleWorker.on("error", (err) => {
+  console.error("lifecycle-emails worker error:", err);
+});
+
+lifecycleWorker.on("failed", (job, err) => {
+  console.error(`lifecycle-emails: scan job ${job?.id} failed:`, err);
+});
+
+// upsertJobScheduler is idempotent by its given id — safe to call every
+// time this process starts (every deploy, every container restart) without
+// piling up duplicate hourly schedules or duplicate repeat jobs.
+lifecycleEmailQueue
+  .upsertJobScheduler("hourly-lifecycle-email-scan", { every: 60 * 60 * 1000 }, { name: "scan" })
+  .then(() => console.log("worker: hourly lifecycle-email scan scheduled"))
+  .catch((err) => {
+    console.error("lifecycle-emails: failed to schedule hourly scan:", err);
+  });
