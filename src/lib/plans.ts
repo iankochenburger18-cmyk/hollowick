@@ -97,6 +97,72 @@ export function isModelAllowed(tier: PlanTierName, model: string): boolean {
   return PLAN_CONFIG[tier].models.includes(model);
 }
 
+// À la carte pricing for unlocking one model on top of whatever plan an
+// account is already on, without upgrading the whole plan — e.g. a STARTER
+// account adding just Veo 3.1 instead of paying for all of STUDIO. This
+// never changes monthly credits: a generation with an add-on model still
+// draws from the plan's existing credit budget like any other model, so
+// there's no new provider-cost exposure here, only new access being sold.
+//
+// How each price is set: find the cheapest tier a model is naturally
+// included in, and look at that tier's price jump over the tier just below
+// it (e.g. STARTER → CREATOR is a $30/mo jump that newly unlocks 5 models).
+// Split that jump across those newly-unlocked models weighted by each
+// model's own credit cost (MODEL_CREDIT_COST — a stand-in for how
+// expensive/desirable it is, so Veo 3.1 is priced far above Wan 2.7 even
+// though both happen to unlock at the same tier), then apply a 1.4×
+// markup and round to a clean number.
+//
+// That 1.4× markup is the part that keeps upgrading the actual plan worth
+// it: buying every model a tier newly unlocks, one at a time, always ends
+// up costing more in total than just paying for that tier outright (which
+// also bundles a much bigger credit budget for free) — while cherry-picking
+// just one or two specific models stays clearly cheaper than a full tier
+// jump. Confirmed against all three tier jumps when this was built; keep
+// that property in mind before hand-editing any of these numbers.
+//
+// A price here is a snapshot at the moment someone buys it (see
+// ModelAddon.priceCents in schema.prisma) — changing a number below only
+// affects new add-on purchases, never ones already active.
+export const MODEL_ADDON_PRICE_CENTS: Record<string, number> = {
+  // Unlocked at CREATOR ($29 → $59, a $30/mo jump across these 5 models)
+  "PixVerse v6": 750,
+  "Happy Horse 1.1": 750,
+  "Genjutsu": 750,
+  "MiniMax Hailuo": 900,
+  "Kling 2.6": 1100,
+
+  // Unlocked at PRO ($59 → $119, a $60/mo jump across these 7 models)
+  "Seedance 2.5": 650,
+  "Kling 3.0": 1000,
+  "Gen-4.5": 1050,
+  "Seedance 2.0": 1250,
+  "Cinema Studio 4.0": 1350,
+  "LTX 2.5 Pro": 1500,
+  "Wan 2.7": 1600,
+
+  // Unlocked at STUDIO ($119 → $249, a $130/mo jump across these 4 models)
+  "Wan 3.0": 2700,
+  "LTX 2.5 Fast": 3000,
+  "Wan 3.0 Prime": 4000,
+  "Veo 3.1": 8500,
+};
+
+// null means this model isn't sellable as an add-on at all — either it's
+// already in every paid tier (a STARTER model), or it's not a real model.
+export function addonPriceForModel(model: string): number | null {
+  return MODEL_ADDON_PRICE_CENTS[model] ?? null;
+}
+
+// Every model not already included in `tier`'s own plan — what the pricing
+// page offers an account to add individually. Naturally empty for STUDIO
+// (already has every model) and for TRIAL (already has every model too,
+// for the length of the trial — see PLAN_CONFIG.TRIAL.models above).
+export function upgradeableModelsForTier(tier: PlanTierName): string[] {
+  const included = PLAN_CONFIG[tier].models;
+  return Object.keys(MODEL_ADDON_PRICE_CENTS).filter((model) => !included.includes(model));
+}
+
 export interface CreditPeriod {
   start: Date;
   end: Date;

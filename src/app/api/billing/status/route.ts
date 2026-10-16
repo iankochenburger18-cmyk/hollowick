@@ -45,5 +45,9 @@ export async function GET() {
     // — a second Checkout session would create a duplicate subscription."
     active,
     isPaidTier: tier !== "TRIAL",
+    // Models unlocked individually on top of this plan — see
+    // src/lib/model-addons.ts. Used by pricing.js to mark which of the
+    // upgradeable models (GET /api/billing/addons) are already added.
+    modelAddons: subscription.modelAddons.map((addon: { model: string }) => addon.model),
   });
 }

@@ -70,6 +70,14 @@ export async function POST(request: Request) {
           where: { userId: existing.userId },
           data: { status: "canceled" },
         });
+        // Any à la carte model add-ons (src/lib/model-addons.ts) lived as
+        // SubscriptionItems on this same subscription, so Stripe already
+        // cancelled their billing along with everything else — this just
+        // clears our own ModelAddon rows so they don't keep reading as
+        // "active" for an account with nothing actually being billed
+        // anymore. A re-subscribe later gets a brand-new Stripe
+        // Subscription, so these would be stale even if left in place.
+        await prisma.modelAddon.deleteMany({ where: { subscriptionId: existing.id } });
       } else {
         console.error(
           `customer.subscription.deleted for ${subscription.id}, but no Subscription row references it.`

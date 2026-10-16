@@ -36,7 +36,10 @@ export function middleware(request: NextRequest) {
 
   if (request.method === "OPTIONS") {
     const response = new NextResponse(null, { status: 204 });
-    response.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    // DELETE added for POST /api/billing/addons' sibling DELETE handler
+    // (removing a model add-on) — every other route so far only ever
+    // needed GET/POST.
+    response.headers.set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
     response.headers.set("Access-Control-Allow-Headers", "Content-Type");
     response.headers.set("Access-Control-Max-Age", "86400");
     return applyCors(response, origin);

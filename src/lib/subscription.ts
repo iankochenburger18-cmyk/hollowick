@@ -13,10 +13,18 @@ import { prisma } from "@/lib/prisma";
 // Return type is left to inference (rather than an explicit `Subscription`
 // annotation) so this doesn't depend on that model type being a named
 // export of the generated Prisma Client, which varies by Prisma version.
+//
+// Always includes `modelAddons` (the à la carte models this account has
+// unlocked on top of its plan tier — see src/lib/model-addons.ts) so every
+// call site gets it for free rather than needing its own extra query.
 export async function getOrCreateSubscription(userId: string) {
-  const existing = await prisma.subscription.findUnique({ where: { userId } });
+  const existing = await prisma.subscription.findUnique({
+    where: { userId },
+    include: { modelAddons: true },
+  });
   if (existing) return existing;
   return prisma.subscription.create({
     data: { userId, planTier: "TRIAL", currentPeriodStart: new Date() },
+    include: { modelAddons: true },
   });
 }

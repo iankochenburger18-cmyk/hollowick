@@ -63,9 +63,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 402 });
   }
 
-  if (!model || !isModelAllowed(tier, model)) {
+  // A model is usable either because the plan tier itself includes it, or
+  // because this account bought it individually as an à la carte add-on
+  // (src/lib/model-addons.ts) — either way it still draws from the plan's
+  // existing monthly credit budget below, an add-on never grants extra
+  // credits of its own.
+  const addonModels = subscription.modelAddons.map((addon: { model: string }) => addon.model);
+  if (!model || (!isModelAllowed(tier, model) && !addonModels.includes(model))) {
     return NextResponse.json(
-      { error: `Your plan (${plan.label}) doesn't include this model.` },
+      { error: `Your plan (${plan.label}) doesn't include this model. Add it individually from the pricing page, or upgrade your plan.` },
       { status: 403 }
     );
   }

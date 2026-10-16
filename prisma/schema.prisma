@@ -34,6 +34,37 @@ model User {
   emailVerificationTokens  EmailVerificationToken[]
 }
 
+// A single model unlocked à la carte on top of an account's plan tier — see
+// MODEL_ADDON_PRICE_CENTS in src/lib/plans.ts for how its price is set, and
+// src/lib/model-addons.ts for how it's actually added/removed in Stripe.
+// Unlocking a model this way never grants extra credits: generations with
+// it still draw from the plan's existing monthly credit budget, same as any
+// model the plan already included — only access is being sold here.
+model ModelAddon {
+  id             String       @id @default(cuid())
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  // Exact display name from MODEL_CREDIT_COST / MODEL_ADDON_PRICE_CENTS in
+  // src/lib/plans.ts (e.g. "Veo 3.1") — not a separate id, so this stays
+  // directly readable in Supabase's Table Editor.
+  model          String
+  // Snapshot of what this account is actually being charged, taken the
+  // moment they added it — so a later change to MODEL_ADDON_PRICE_CENTS
+  // (a price change) never silently reprices someone already subscribed to
+  // this add-on; only new add-ons pick up a new price.
+  priceCents     Int
+  // The Stripe SubscriptionItem this add-on's recurring charge lives on —
+  // needed to cancel just this one item later without touching the rest of
+  // the subscription. See removeModelAddon in src/lib/model-addons.ts.
+  stripeSubscriptionItemId String @unique
+  createdAt      DateTime     @default(now())
+
+  // One add-on per model per subscription — buying the same model twice
+  // should never be possible.
+  @@unique([subscriptionId, model])
+  @@index([subscriptionId])
+}
+
 // A single-use link sent by /api/register (and re-issuable via POST
 // /api/verify-email/resend) to confirm an account's email address. Only
 // tokenHash is ever stored — the raw token lives in the emailed link and
@@ -107,6 +138,8 @@ model Subscription {
   trialEndedEmailSentAt DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
+
+  modelAddons          ModelAddon[]
 }
 
 enum JobStatus {

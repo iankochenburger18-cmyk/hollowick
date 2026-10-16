@@ -69,6 +69,14 @@ export function tierForPriceId(priceId: string): PaidPlanTier | null {
  * items with independent billing cycles) — see SubscriptionItem in the
  * stripe package's own type definitions.
  *
+ * A subscription can carry more than one item now that à la carte model
+ * add-ons exist (src/lib/model-addons.ts) — each add-on is its own
+ * SubscriptionItem living alongside the base plan's item on the same
+ * Subscription. So rather than assuming the plan is `items.data[0]`, this
+ * scans for whichever item's price actually matches one of the four known
+ * plan-tier prices, and ignores the rest (an add-on item's price never
+ * matches a STRIPE_PRICE_* env var, so tierForPriceId naturally skips it).
+ *
  * `userId` is passed the first time, from Checkout Session metadata, since
  * at that point our Subscription row doesn't have a stripeSubscriptionId
  * yet to match on. On every later call we already have that id stored, so
@@ -78,17 +86,19 @@ export async function syncSubscriptionFromStripe(
   subscription: Stripe.Subscription,
   userId?: string
 ): Promise<void> {
-  const item = subscription.items.data[0];
+  const item = subscription.items.data.find((candidate) => tierForPriceId(candidate.price.id) !== null);
   if (!item) {
-    console.error(`Stripe subscription ${subscription.id} has no items — can't sync it.`);
+    console.error(
+      `Stripe subscription ${subscription.id} has no item matching a known plan-tier price — can't sync it (items: ${subscription.items.data.map((i) => i.price.id).join(", ") || "none"}).`
+    );
     return;
   }
 
   const tier = tierForPriceId(item.price.id);
   if (!tier) {
-    console.error(
-      `Stripe subscription ${subscription.id} is on price ${item.price.id}, which doesn't match any STRIPE_PRICE_* env var — can't map it to a plan tier.`
-    );
+    // Unreachable given the .find() above, but keeps this branch's error
+    // handling self-contained rather than relying on that invariant.
+    console.error(`Stripe subscription ${subscription.id}: matched item had no resolvable tier.`);
     return;
   }
 
