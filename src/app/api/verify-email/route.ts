@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyEmailToken } from "@/lib/email-verification";
+import { FRONTEND_URL } from "@/lib/frontend-url";
 
 // This is the actual link a confirmation email points at
 // (api.hollowick.app/api/verify-email?token=...), so unlike the rest of
@@ -7,9 +8,6 @@ import { verifyEmailToken } from "@/lib/email-verification";
 // by the frontend — hence a plain HTML response here instead of JSON, and
 // no route on the hollowick-site side at all. FRONTEND_URL is only used to
 // decide where its two buttons ("Sign in" / "Go to the studio") lead.
-const FRONTEND_URL = (process.env.FRONTEND_ORIGINS || "https://hollowick.app")
-  .split(",")[0]
-  .trim();
 
 const INK = "#171815";
 const PAPER = "#f5f5f0";

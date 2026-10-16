@@ -9,13 +9,11 @@
 import { prisma } from "@/lib/prisma";
 import { computeCurrentPeriod } from "@/lib/plans";
 import { sendTrialEndingSoonEmail, sendTrialEndedEmail } from "@/lib/email";
+import { FRONTEND_URL } from "@/lib/frontend-url";
 
 const REMINDER_WINDOW_MS = 2 * 24 * 60 * 60 * 1000; // start reminding 2 days out
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const FRONTEND_URL = (process.env.FRONTEND_ORIGINS || "https://hollowick.app")
-  .split(",")[0]
-  .trim();
 const PRICING_URL = `${FRONTEND_URL}/pricing/`;
 
 // `now` is a parameter (rather than always `new Date()` internally) purely

@@ -80,6 +80,18 @@ export async function sendVerificationEmail(to: string, verifyUrl: string): Prom
   await send(to, "Confirm your email — Hollowick", html, text);
 }
 
+export async function sendTrialStartedEmail(to: string, trialEndsAt: Date, studioUrl: string): Promise<void> {
+  const endLabel = trialEndsAt.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  const html = layout(
+    "You're on the Hollowick free trial — 7 days, every model included.",
+    `<p style="margin:0 0 4px;font-size:18px;font-weight:600;">You're on the free trial</p>
+     <p style="margin:0;">Your 7-day free trial just started, with access to every video model. It runs through <strong>${endLabel}</strong> — pick a plan any time before then to keep generating without a gap.</p>
+     ${button("Start creating", studioUrl)}`
+  );
+  const text = `You're on the Hollowick free trial — 7 days, every model included, through ${endLabel}. Pick a plan any time before then to keep generating without a gap: ${studioUrl}`;
+  await send(to, "You're on the free trial — Hollowick", html, text);
+}
+
 export async function sendTrialEndingSoonEmail(to: string, daysLeft: number, pricingUrl: string): Promise<void> {
   const days = daysLeft === 1 ? "1 day" : `${daysLeft} days`;
   const html = layout(
