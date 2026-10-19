@@ -55,6 +55,14 @@ function requireApiKey(): string {
 async function falRequest<T>(url: string, init: RequestInit): Promise<T> {
   const apiKey = requireApiKey();
 
+  const method = init.method ?? "GET";
+  // TEMPORARY DIAGNOSTIC LOGGING — tracking down a 405 that only happens
+  // inside the deployed server, never via a standalone script. Printing the
+  // exact outgoing request and the exact raw response so we can diff it
+  // against a known-good manual request. Safe to remove once resolved: this
+  // never logs the API key itself.
+  console.log(`[fal-debug] -> ${method} ${url}`, { bodyPreview: typeof init.body === "string" ? init.body.slice(0, 500) : init.body });
+
   let response: Response;
   try {
     response = await fetch(url, {
@@ -75,23 +83,28 @@ async function falRequest<T>(url: string, init: RequestInit): Promise<T> {
       },
     });
   } catch (err) {
+    console.log(`[fal-debug] <- network error reaching ${url}:`, err);
     throw new VideoProviderError(`Failed to reach fal.ai: ${err instanceof Error ? err.message : String(err)}`, "network_error");
   }
 
+  const rawBody = await response.text().catch(() => "");
+  console.log(`[fal-debug] <- ${response.status} ${method} ${url}`, {
+    headers: Object.fromEntries(response.headers.entries()),
+    bodyPreview: rawBody.slice(0, 1000),
+  });
+
   if (response.status === 401 || response.status === 403) {
-    const body = await response.text().catch(() => "");
     throw new VideoProviderError(
-      `fal.ai rejected the request as unauthorized (HTTP ${response.status}) ${body} — check that FAL_API_KEY is valid`.trim(),
+      `fal.ai rejected the request as unauthorized (HTTP ${response.status}) ${rawBody} — check that FAL_API_KEY is valid`.trim(),
       "auth_error"
     );
   }
 
   if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new VideoProviderError(`fal.ai request failed: HTTP ${response.status} ${body}`.trim(), "request_failed");
+    throw new VideoProviderError(`fal.ai request failed: HTTP ${response.status} ${rawBody}`.trim(), "request_failed");
   }
 
-  return response.json() as Promise<T>;
+  return JSON.parse(rawBody) as T;
 }
 
 /**
