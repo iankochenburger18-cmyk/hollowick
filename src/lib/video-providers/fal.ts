@@ -59,6 +59,15 @@ async function falRequest<T>(url: string, init: RequestInit): Promise<T> {
   try {
     response = await fetch(url, {
       ...init,
+      // Next.js globally patches fetch() to route calls through its own Data
+      // Cache layer. That patched fetch has been observed mangling requests
+      // to fal.ai's queue API (POSTs that work fine via a bare Node process
+      // come back HTTP 405 once the same code runs inside the booted
+      // Next.js server) — cache: "no-store" opts this call out of that
+      // patching and restores plain fetch() behavior. Keep this on every
+      // outbound call here; this is a mutation (submit/poll a job), never
+      // something Next should be allowed to cache anyway.
+      cache: "no-store",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Key ${apiKey}`,

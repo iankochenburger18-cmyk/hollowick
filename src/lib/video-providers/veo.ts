@@ -38,6 +38,10 @@ async function veoRequest(path: string, init: RequestInit): Promise<VeoOperation
   try {
     response = await fetch(`${GEMINI_API_BASE}${path}`, {
       ...init,
+      // See the matching comment in fal.ts — Next.js patches global fetch()
+      // for its Data Cache, which has been observed breaking POSTs to
+      // third-party queue APIs. Opt out of that patching here.
+      cache: "no-store",
       headers: {
         "Content-Type": "application/json",
         "x-goog-api-key": apiKey,

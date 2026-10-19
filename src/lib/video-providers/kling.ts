@@ -72,6 +72,10 @@ async function klingRequest(path: string, init: RequestInit): Promise<KlingTaskR
   try {
     response = await fetch(`${KLING_API_BASE}${path}`, {
       ...init,
+      // See the matching comment in fal.ts — Next.js patches global fetch()
+      // for its Data Cache, which has been observed breaking POSTs to
+      // third-party queue APIs. Opt out of that patching here.
+      cache: "no-store",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
