@@ -1,5 +1,6 @@
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { Readable } from "node:stream";
 
 // SigV4 presigned URLs cap out at 7 days — there's no "durable" URL for a
 // private bucket without either making objects public or re-signing on
@@ -51,4 +52,43 @@ export async function uploadVideoFromUrl(sourceUrl: string, key: string): Promis
   return getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), {
     expiresIn: RESULT_URL_EXPIRY_SECONDS,
   });
+}
+
+export interface VideoObject {
+  body: ReadableStream<Uint8Array> | null;
+  contentType?: string;
+  contentLength?: number;
+  contentRange?: string;
+  statusCode: number;
+}
+
+/**
+ * Streams a bucket object straight through our own server, instead of
+ * handing the browser a presigned URL pointing at the storage provider's
+ * own hostname. This exists because browsers hitting
+ * `*.your-objectstorage.com` directly were observed getting an outright TLS
+ * handshake reset (confirmed across Windows/schannel, Firefox/NSS, and
+ * Edge/BoringSSL, on two unrelated networks, with a plain curl from this
+ * server succeeding every time) — so videos are served to end users via
+ * /api/videos/[jobId] on our own domain instead. See that route.
+ */
+export async function getVideoObject(key: string, range?: string): Promise<VideoObject> {
+  const bucket = process.env.S3_BUCKET;
+  if (!bucket) {
+    throw new Error("S3_BUCKET is not configured");
+  }
+
+  const client = getClient();
+  const result = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key, Range: range }));
+
+  const nodeStream = result.Body as Readable | undefined;
+  const body = nodeStream ? (Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>) : null;
+
+  return {
+    body,
+    contentType: result.ContentType,
+    contentLength: result.ContentLength,
+    contentRange: result.ContentRange,
+    statusCode: result.$metadata.httpStatusCode ?? (range ? 206 : 200),
+  };
 }
