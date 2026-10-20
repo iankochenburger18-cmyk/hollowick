@@ -55,26 +55,12 @@ function requireApiKey(): string {
 async function falRequest<T>(url: string, init: RequestInit): Promise<T> {
   const apiKey = requireApiKey();
 
-  const method = init.method ?? "GET";
-  // TEMPORARY DIAGNOSTIC LOGGING — tracking down a 405 that only happens
-  // inside the deployed server, never via a standalone script. Printing the
-  // exact outgoing request and the exact raw response so we can diff it
-  // against a known-good manual request. Safe to remove once resolved: this
-  // never logs the API key itself.
-  console.log(`[fal-debug] -> ${method} ${url}`, { bodyPreview: typeof init.body === "string" ? init.body.slice(0, 500) : init.body });
-
   let response: Response;
   try {
     response = await fetch(url, {
       ...init,
-      // Next.js globally patches fetch() to route calls through its own Data
-      // Cache layer. That patched fetch has been observed mangling requests
-      // to fal.ai's queue API (POSTs that work fine via a bare Node process
-      // come back HTTP 405 once the same code runs inside the booted
-      // Next.js server) — cache: "no-store" opts this call out of that
-      // patching and restores plain fetch() behavior. Keep this on every
-      // outbound call here; this is a mutation (submit/poll a job), never
-      // something Next should be allowed to cache anyway.
+      // This call is always a mutation (submit/poll a job) and should never
+      // be served from Next.js's Data Cache layer.
       cache: "no-store",
       headers: {
         "Content-Type": "application/json",
@@ -83,15 +69,10 @@ async function falRequest<T>(url: string, init: RequestInit): Promise<T> {
       },
     });
   } catch (err) {
-    console.log(`[fal-debug] <- network error reaching ${url}:`, err);
     throw new VideoProviderError(`Failed to reach fal.ai: ${err instanceof Error ? err.message : String(err)}`, "network_error");
   }
 
   const rawBody = await response.text().catch(() => "");
-  console.log(`[fal-debug] <- ${response.status} ${method} ${url}`, {
-    headers: Object.fromEntries(response.headers.entries()),
-    bodyPreview: rawBody.slice(0, 1000),
-  });
 
   if (response.status === 401 || response.status === 403) {
     throw new VideoProviderError(
@@ -105,6 +86,42 @@ async function falRequest<T>(url: string, init: RequestInit): Promise<T> {
   }
 
   return JSON.parse(rawBody) as T;
+}
+
+interface FalJobRef {
+  requestId: string;
+  statusUrl?: string;
+  responseUrl?: string;
+}
+
+/**
+ * jobId is an opaque string as far as VideoProvider's interface goes, but
+ * fal.ai gives us the real URLs to poll (status_url/response_url) in the
+ * submit response — and those URLs do NOT always match
+ * `${endpointId}/requests/{id}/...`. fal's queue API drops trailing path
+ * segments of the submit endpoint id for its requests/status/result/cancel
+ * endpoints (confirmed live: submitting to
+ * ".../minimax/h3-max-turbo/text-to-video" but polling status at
+ * ".../minimax/h3-max-turbo/requests/{id}/status" — NOT
+ * ".../minimax/h3-max-turbo/text-to-video/requests/{id}/status", which
+ * 405s with `Allow: POST`). So we stash fal's own URLs in jobId (JSON-
+ * encoded) instead of reconstructing them from endpointId, and only fall
+ * back to reconstructing for any older job whose jobId predates this fix.
+ */
+function encodeFalJobId(ref: FalJobRef): string {
+  return JSON.stringify(ref);
+}
+
+function decodeFalJobId(jobId: string): FalJobRef {
+  try {
+    const parsed = JSON.parse(jobId);
+    if (parsed && typeof parsed.requestId === "string") {
+      return parsed as FalJobRef;
+    }
+  } catch {
+    // Not JSON — an older job whose jobId is just the bare request_id.
+  }
+  return { requestId: jobId };
 }
 
 /**
@@ -136,12 +153,20 @@ export function createFalProvider(name: string, endpointId: string): VideoProvid
         throw new VideoProviderError(`fal.ai did not return a request_id for ${endpointId}`, "request_failed");
       }
 
-      return { jobId: body.request_id };
+      return {
+        jobId: encodeFalJobId({
+          requestId: body.request_id,
+          statusUrl: body.status_url,
+          responseUrl: body.response_url,
+        }),
+      };
     },
 
     async getStatus(jobId: string): Promise<VideoStatusResult> {
+      const { requestId, statusUrl, responseUrl } = decodeFalJobId(jobId);
+
       const statusBody = await falRequest<FalQueueStatusResponse>(
-        `${FAL_QUEUE_BASE}/${endpointId}/requests/${jobId}/status`,
+        statusUrl ?? `${FAL_QUEUE_BASE}/${endpointId}/requests/${requestId}/status`,
         { method: "GET" }
       );
 
@@ -155,9 +180,10 @@ export function createFalProvider(name: string, endpointId: string): VideoProvid
         return { status: "failed", error: `fal.ai returned an unrecognized status: ${statusBody.status}` };
       }
 
-      const resultBody = await falRequest<FalResultResponse>(`${FAL_QUEUE_BASE}/${endpointId}/requests/${jobId}`, {
-        method: "GET",
-      });
+      const resultBody = await falRequest<FalResultResponse>(
+        responseUrl ?? `${FAL_QUEUE_BASE}/${endpointId}/requests/${requestId}`,
+        { method: "GET" }
+      );
 
       if (resultBody.error) {
         return { status: "failed", error: resultBody.error };
