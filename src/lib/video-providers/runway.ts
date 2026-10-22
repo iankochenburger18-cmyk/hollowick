@@ -71,6 +71,23 @@ async function runwayRequest(path: string, init: RequestInit): Promise<RunwayTas
   return response.json() as Promise<RunwayTaskResponse>;
 }
 
+// The studio UI's aspect-ratio buttons send plain ratio labels ("16:9",
+// "9:16", "1:1"), but Runway's gen4.5 /text_to_video endpoint takes a
+// specific pixel-dimension enum instead and 400s on anything else —
+// confirmed live: it rejected "16:9" with "Invalid option: expected one of
+// \"1280:720\" \"720:1280\"". That error also tells us this endpoint has no
+// square option at all, so "1:1" falls back to landscape rather than
+// sending a value Runway doesn't accept.
+const RUNWAY_RATIOS: Record<string, string> = {
+  "16:9": "1280:720",
+  "9:16": "720:1280",
+};
+
+function mapRatio(aspectRatio: string | undefined): string {
+  if (!aspectRatio) return "1280:720";
+  return RUNWAY_RATIOS[aspectRatio] ?? "1280:720";
+}
+
 function mapStatus(status: string | undefined): VideoStatusResult["status"] {
   switch (status) {
     case "PENDING":
@@ -102,7 +119,7 @@ export const runwayProvider: VideoProvider = {
       body: JSON.stringify({
         model: RUNWAY_MODEL,
         promptText: prompt,
-        ratio: aspectRatio ?? "1280:720",
+        ratio: mapRatio(aspectRatio),
         duration: duration ?? 5,
       }),
     });
