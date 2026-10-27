@@ -26,6 +26,22 @@ export async function GET() {
   const period = computeCurrentPeriod(tier, subscription.currentPeriodStart);
   const active = hasActiveAccess(tier, subscription.status, period);
 
+  // Same aggregate the generate route uses to check whether a job is
+  // affordable (src/app/api/generate/route.ts) — duplicated rather than
+  // shared to keep this GET read-only and dependency-light; if the two
+  // drift, the generate route's check is always the one that actually
+  // gates spend, this one is read-only display.
+  const usage = await prisma.generationJob.aggregate({
+    _sum: { costCents: true },
+    where: {
+      userId: session.user.id,
+      createdAt: { gte: period.start },
+      status: { not: "FAILED" },
+    },
+  });
+  const creditsUsed = usage._sum.costCents ?? 0;
+  const creditsRemaining = Math.max(0, PLAN_CONFIG[tier].monthlyCredits - creditsUsed);
+
   return NextResponse.json({
     signedIn: true,
     email: session.user.email,
@@ -45,6 +61,11 @@ export async function GET() {
     // — a second Checkout session would create a duplicate subscription."
     active,
     isPaidTier: tier !== "TRIAL",
+    // Small top-left credits readout in the studio (src/studio.js) — see
+    // refreshEmailVerification() there, which already calls this endpoint
+    // once per session refresh.
+    creditsRemaining,
+    monthlyCredits: PLAN_CONFIG[tier].monthlyCredits,
     // Models unlocked individually on top of this plan — see
     // src/lib/model-addons.ts. Used by pricing.js to mark which of the
     // upgradeable models (GET /api/billing/addons) are already added.

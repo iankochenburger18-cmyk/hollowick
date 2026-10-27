@@ -40,6 +40,63 @@ export const MODEL_CREDIT_COST: Record<string, number> = {
   "Veo 3.1": 320,
 };
 
+// Which models bill proportionally to a user-chosen output length, and what
+// duration (seconds) each MODEL_CREDIT_COST value above was calibrated
+// against — i.e. the default every provider body-builder already falls
+// back to (`duration ?? 5` etc. — see src/lib/video-providers/*.ts). Only
+// a model whose adapter actually forwards a `duration` field to its
+// provider belongs here; creditCostForModel() charges the flat
+// MODEL_CREDIT_COST for everything else, same as before this feature.
+//
+// Two models are deliberately left out:
+//   - Veo 3.1: veo.ts never sends a duration at all — Google's API returns
+//     a fixed-length clip, so there's nothing to scale.
+//   - Genjutsu: it's motion-transfer, not text-to-video — referenceBody()
+//     in higgsfield.ts has no duration field either. Its real cost is
+//     driven by the length of the *reference video* you supply, confirmed
+//     against Higgsfield's own /estimate endpoint ($0.681/sec of reference
+//     footage at 720p) — which is NOT what MODEL_CREDIT_COST currently
+//     charges for it. That mismatch is a separate, already-known, not-yet-
+//     fixed pricing issue and out of scope for this duration feature.
+//
+// Assumption worth flagging: this treats provider cost as linear in output
+// duration for every model below (true for typical per-second video billing,
+// but not individually re-verified against each provider's actual invoice
+// the way Genjutsu's was) — revisit per-model if real spend says otherwise.
+export const MODEL_BASE_DURATION_SECONDS: Record<string, number> = {
+  "MiniMax H3 Max Turbo": 5,
+  "Ray3": 5,
+  "Happy Horse 1.0": 5,
+  "Kling 2.5": 5,
+  "PixVerse v6": 5,
+  "Happy Horse 1.1": 5,
+  "MiniMax Hailuo": 6,
+  "Kling 2.6": 5,
+  "Seedance 2.5": 5,
+  "Kling 3.0": 5,
+  "Gen-4.5": 5,
+  "Seedance 2.0": 5,
+  "Cinema Studio 4.0": 5,
+  "LTX 2.5 Pro": 5,
+  "Wan 2.7": 5,
+  "Wan 3.0": 5,
+  "LTX 2.5 Fast": 5,
+  "Wan 3.0 Prime": 5,
+};
+
+// Shared bounds for every duration-configurable model — one generic range
+// rather than per-model limits that haven't been individually verified
+// against each provider's real min/max. A provider that rejects a value
+// outside what it actually supports still surfaces its own validation
+// error to the generation job, same as Runway's ratio validation already
+// does elsewhere in this codebase — nothing new to handle for that case.
+export const DURATION_MIN_SECONDS = 3;
+export const DURATION_MAX_SECONDS = 20;
+
+export function isDurationConfigurable(model: string): boolean {
+  return Object.hasOwn(MODEL_BASE_DURATION_SECONDS, model);
+}
+
 const STARTER_MODELS = ["MiniMax H3 Max Turbo", "Ray3", "Happy Horse 1.0", "Kling 2.5"];
 const CREATOR_MODELS = [
   ...STARTER_MODELS,
@@ -89,8 +146,25 @@ export const PLAN_CONFIG: Record<PlanTierName, PlanConfig> = {
   STUDIO: { label: "Studio", priceCents: 24900, monthlyCredits: 21900, periodDays: BILLING_PERIOD_DAYS, models: STUDIO_MODELS },
 };
 
-export function creditCostForModel(model: string): number | null {
-  return MODEL_CREDIT_COST[model] ?? null;
+// `durationSeconds` is the user's requested length (omit it, or pass
+// undefined, for "auto" — the model's own default, which is exactly what
+// every MODEL_CREDIT_COST value already charges for, so behavior for
+// existing callers that never pass a duration is unchanged). For a model
+// not in MODEL_BASE_DURATION_SECONDS (Veo 3.1, Genjutsu), any duration
+// passed in is ignored and the flat cost always applies.
+export function creditCostForModel(model: string, durationSeconds?: number): number | null {
+  const flatCost = MODEL_CREDIT_COST[model];
+  if (flatCost === undefined) return null;
+
+  const baseDuration = MODEL_BASE_DURATION_SECONDS[model];
+  if (!baseDuration || durationSeconds === undefined) return flatCost;
+
+  const clamped = Math.min(DURATION_MAX_SECONDS, Math.max(DURATION_MIN_SECONDS, durationSeconds));
+  // Linear with duration — see the "Assumption worth flagging" comment on
+  // MODEL_BASE_DURATION_SECONDS above. Rounds up so we never undercharge a
+  // fractional-credit sliver relative to the provider's actual per-second
+  // rate.
+  return Math.ceil((flatCost / baseDuration) * clamped);
 }
 
 export function isModelAllowed(tier: PlanTierName, model: string): boolean {

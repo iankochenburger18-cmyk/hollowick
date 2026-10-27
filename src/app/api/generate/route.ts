@@ -4,7 +4,16 @@ import { prisma } from "@/lib/prisma";
 import { generationQueue } from "@/lib/queue";
 import { getVideoProvider, resolveProviderName, VideoProviderError } from "@/lib/video-providers";
 import { getOrCreateSubscription } from "@/lib/subscription";
-import { PLAN_CONFIG, computeCurrentPeriod, creditCostForModel, hasActiveAccess, isModelAllowed, type PlanTierName } from "@/lib/plans";
+import {
+  PLAN_CONFIG,
+  computeCurrentPeriod,
+  creditCostForModel,
+  hasActiveAccess,
+  isModelAllowed,
+  DURATION_MIN_SECONDS,
+  DURATION_MAX_SECONDS,
+  type PlanTierName,
+} from "@/lib/plans";
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -20,7 +29,16 @@ export async function POST(request: Request) {
   // resolve which adapter actually serves it.
   const explicitProvider = typeof body?.provider === "string" ? body.provider : null;
   const providerName = resolveProviderName(model, explicitProvider);
-  const duration = typeof body?.duration === "number" ? body.duration : undefined;
+  // Omitted/undefined means "auto" — let the provider pick its own default
+  // length (see MODEL_BASE_DURATION_SECONDS in plans.ts). When a duration
+  // IS given, clamp it server-side too — the studio UI already enforces
+  // these bounds on its number input, but this route is the actual trust
+  // boundary, not the UI.
+  const rawDuration = typeof body?.duration === "number" && Number.isFinite(body.duration) ? body.duration : undefined;
+  const duration =
+    rawDuration === undefined
+      ? undefined
+      : Math.min(DURATION_MAX_SECONDS, Math.max(DURATION_MIN_SECONDS, Math.round(rawDuration)));
   const aspectRatio = typeof body?.aspectRatio === "string" ? body.aspectRatio : undefined;
   // Only used by reference-driven models like Genjutsu (see MODEL_TO_PROVIDER
   // and higgsfield.ts) — ignored by every other provider's generate().
@@ -76,7 +94,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const creditCost = creditCostForModel(model);
+  const creditCost = creditCostForModel(model, duration);
   if (creditCost === null) {
     return NextResponse.json({ error: "Unknown model." }, { status: 400 });
   }

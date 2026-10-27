@@ -206,18 +206,6 @@ function requireAuthHeader(): string {
 async function higgsfieldRequest<T>(url: string, init: RequestInit): Promise<T> {
   const authHeader = requireAuthHeader();
 
-  // TEMPORARY DIAGNOSTIC LOGGING — Genjutsu reports "credit balance too low"
-  // on every attempt despite $11+ of real organization balance and $0 actual
-  // spend against the 2 requests that already landed, so the generic error
-  // text is almost certainly standing in for some other rejection reason.
-  // Printing the exact outgoing request and the raw response to see what
-  // Higgsfield is actually objecting to. Safe to remove once resolved: this
-  // never logs the auth header itself.
-  const method = init.method ?? "GET";
-  console.log(`[higgsfield-debug] -> ${method} ${url}`, {
-    bodyPreview: typeof init.body === "string" ? init.body.slice(0, 1000) : init.body,
-  });
-
   let response: Response;
   try {
     response = await fetch(url, {
@@ -233,7 +221,6 @@ async function higgsfieldRequest<T>(url: string, init: RequestInit): Promise<T> 
       },
     });
   } catch (err) {
-    console.log(`[higgsfield-debug] <- network error reaching ${url}:`, err);
     throw new VideoProviderError(
       `Failed to reach the Higgsfield API: ${err instanceof Error ? err.message : String(err)}`,
       "network_error"
@@ -241,9 +228,6 @@ async function higgsfieldRequest<T>(url: string, init: RequestInit): Promise<T> 
   }
 
   const rawBody = await response.text().catch(() => "");
-  console.log(`[higgsfield-debug] <- ${response.status} ${method} ${url}`, {
-    bodyPreview: rawBody.slice(0, 1500),
-  });
 
   if (response.status === 401 || response.status === 403) {
     throw new VideoProviderError(
