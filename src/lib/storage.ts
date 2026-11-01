@@ -25,19 +25,13 @@ function getClient(): S3Client {
   return client;
 }
 
-/** Downloads a (often short-lived) provider video URL and re-uploads it to our own bucket, returning our durable URL. */
-export async function uploadVideoFromUrl(sourceUrl: string, key: string): Promise<string> {
+/** Shared by uploadVideoFromUrl/uploadVideoBuffer below — puts bytes at `key` and hands back a durable signed URL to them. */
+async function putVideoBytes(bytes: Uint8Array, key: string, contentType: string): Promise<string> {
   const bucket = process.env.S3_BUCKET;
   if (!bucket) {
     throw new Error("S3_BUCKET is not configured");
   }
 
-  const response = await fetch(sourceUrl);
-  if (!response.ok || !response.body) {
-    throw new Error(`Failed to download generated video from provider: HTTP ${response.status}`);
-  }
-
-  const bytes = new Uint8Array(await response.arrayBuffer());
   const client = getClient();
 
   await client.send(
@@ -45,13 +39,35 @@ export async function uploadVideoFromUrl(sourceUrl: string, key: string): Promis
       Bucket: bucket,
       Key: key,
       Body: bytes,
-      ContentType: response.headers.get("content-type") ?? "video/mp4",
+      ContentType: contentType,
     })
   );
 
   return getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), {
     expiresIn: RESULT_URL_EXPIRY_SECONDS,
   });
+}
+
+/** Downloads a (often short-lived) provider video URL and re-uploads it to our own bucket, returning our durable URL. */
+export async function uploadVideoFromUrl(sourceUrl: string, key: string): Promise<string> {
+  const response = await fetch(sourceUrl);
+  if (!response.ok || !response.body) {
+    throw new Error(`Failed to download generated video from provider: HTTP ${response.status}`);
+  }
+
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  return putVideoBytes(bytes, key, response.headers.get("content-type") ?? "video/mp4");
+}
+
+/**
+ * Uploads a video a provider handed back as inline base64 rather than a URL
+ * to fetch (e.g. Gemini Omni Flash's Interactions API — see veo.ts and
+ * VideoStatusResult.videoData in video-providers/types.ts). No network
+ * fetch needed here — the bytes are already in hand.
+ */
+export async function uploadVideoBuffer(base64: string, mimeType: string, key: string): Promise<string> {
+  const bytes = new Uint8Array(Buffer.from(base64, "base64"));
+  return putVideoBytes(bytes, key, mimeType || "video/mp4");
 }
 
 export interface VideoObject {

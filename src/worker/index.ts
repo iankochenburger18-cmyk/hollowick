@@ -1,7 +1,7 @@
 import { Worker } from "bullmq";
 import IORedis from "ioredis";
 import { prisma } from "@/lib/prisma";
-import { uploadVideoFromUrl } from "@/lib/storage";
+import { uploadVideoFromUrl, uploadVideoBuffer } from "@/lib/storage";
 import { GENERATION_QUEUE_NAME, type GenerationJobData } from "@/lib/queue";
 import { getVideoProvider, VideoProviderError } from "@/lib/video-providers";
 import { lifecycleEmailQueue, LIFECYCLE_EMAIL_QUEUE_NAME } from "@/lib/lifecycle-queue";
@@ -81,13 +81,15 @@ const worker = new Worker<GenerationJobData>(
       }
 
       if (result.status === "completed") {
-        if (!result.videoUrl) {
-          await failJob(jobId, "Provider reported completion but returned no video URL.");
+        if (!result.videoUrl && !result.videoData) {
+          await failJob(jobId, "Provider reported completion but returned no video URL or data.");
           return;
         }
 
         try {
-          const storedUrl = await uploadVideoFromUrl(result.videoUrl, `videos/${jobId}.mp4`);
+          const storedUrl = result.videoData
+            ? await uploadVideoBuffer(result.videoData.base64, result.videoData.mimeType, `videos/${jobId}.mp4`)
+            : await uploadVideoFromUrl(result.videoUrl!, `videos/${jobId}.mp4`);
           await prisma.generationJob.update({
             where: { id: jobId },
             data: { status: "COMPLETED", resultUrl: storedUrl },
