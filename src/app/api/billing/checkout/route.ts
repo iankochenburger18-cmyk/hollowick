@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateSubscription } from "@/lib/subscription";
 import { stripe, priceIdForTier, type PaidPlanTier } from "@/lib/stripe";
+import { FRONTEND_URL } from "@/lib/frontend-url";
 
 const PAID_TIERS: PaidPlanTier[] = ["STARTER", "CREATOR", "PRO", "STUDIO"];
 
@@ -53,16 +54,19 @@ export async function POST(request: Request) {
     });
   }
 
-  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
-
   let checkoutSession;
   try {
     checkoutSession = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,
       line_items: [{ price: priceIdForTier(tier), quantity: 1 }],
-      success_url: `${appUrl}/dashboard?checkout=success`,
-      cancel_url: `${appUrl}/dashboard?checkout=cancelled`,
+      // Send the customer back to the real frontend (hollowick-site, on
+      // Vercel) — this backend's own /dashboard page is an unstyled
+      // internal scaffold, never meant to be user-facing (see
+      // src/app/dashboard/page.tsx). studio.js reads the ?checkout= param
+      // to show a confirmation and re-pull the account's plan/credits.
+      success_url: `${FRONTEND_URL}/studio/?checkout=success`,
+      cancel_url: `${FRONTEND_URL}/pricing/?checkout=cancelled`,
       // This Stripe account has Managed Payments (Stripe's merchant-of-record
       // mode) enabled by default, which requires every Price's underlying
       // Product to carry a tax_code — ours don't, so Checkout rejects the

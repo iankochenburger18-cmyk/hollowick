@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
+import { FRONTEND_URL } from "@/lib/frontend-url";
 
 // Starts a Stripe Billing Portal session for an account that already has an
 // active paid subscription — this is how they cancel, or switch to a
@@ -32,13 +33,13 @@ export async function POST() {
     );
   }
 
-  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
-
   let portalSession;
   try {
     portalSession = await stripe.billingPortal.sessions.create({
       customer: subscription.stripeCustomerId,
-      return_url: `${appUrl}/dashboard`,
+      // Same fix as checkout/route.ts — this backend's own /dashboard page
+      // is an unstyled internal scaffold, never meant to be user-facing.
+      return_url: `${FRONTEND_URL}/studio/`,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Stripe billing portal failed to start.";
