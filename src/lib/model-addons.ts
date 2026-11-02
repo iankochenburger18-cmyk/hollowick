@@ -18,23 +18,38 @@ function slugForModel(model: string): string {
   return model.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
-// Currency-specific: a Stripe Subscription requires every item on it to
-// share one currency, and that currency is set by whichever Price the base
-// plan was checked out with (see priceIdForTier in stripe.ts — those Prices
-// were created by hand in the Dashboard, not pinned to USD here) — it can
-// differ per account. Baking currency into the key means an add-on bought
-// by a USD subscription and one bought by a CHF subscription never collide
-// on the same Stripe Price (which would either crash, like the bug this is
-// fixing, or silently charge the wrong amount for one of the two).
-function lookupKeyForModel(model: string, currency: string): string {
-  return `model_addon_${slugForModel(model)}_${currency}`;
+// Currency-specific AND price-specific: a Stripe Subscription requires
+// every item on it to share one currency, and that currency is set by
+// whichever Price the base plan was checked out with (see priceIdForTier in
+// stripe.ts — those Prices were created by hand in the Dashboard, not
+// pinned to USD here) — it can differ per account. Baking currency into the
+// key means an add-on bought by a USD subscription and one bought by a CHF
+// subscription never collide on the same Stripe Price (which would either
+// crash, like the bug that fixed, or silently charge the wrong amount for
+// one of the two).
+//
+// Price is baked in too, and that part matters for a different reason:
+// Stripe Prices are immutable — you can't edit unit_amount on an existing
+// one. Without priceCents in the key, changing MODEL_ADDON_PRICE_CENTS in
+// plans.ts would silently do nothing for any model that already has an
+// active Price under its lookup_key (getOrCreateAddonPrice would just keep
+// finding and reusing the old amount forever). With it, a price change in
+// plans.ts changes the lookup_key, so it's automatically treated as "no
+// Price exists yet" and a fresh one gets created at the new amount — no
+// manual archiving in the Stripe Dashboard needed after a repricing. This
+// also matches the snapshot-at-purchase-time behavior ModelAddon.priceCents
+// already documents in plans.ts: an old Price stays around unused rather
+// than disappearing, same as it always has.
+function lookupKeyForModel(model: string, currency: string, priceCents: number): string {
+  return `model_addon_${slugForModel(model)}_${currency}_${priceCents}`;
 }
 
-// Finds the Stripe Price for this model's add-on, in the given currency, if
-// one was already created (by an earlier purchase of this same model in
-// this same currency, by anyone), or creates it. Using `lookup_key` this
-// way means we never need our own table mapping models to Stripe Price
-// IDs — Stripe's lookup_key index is that table.
+// Finds the Stripe Price for this model's add-on, in the given currency and
+// at its current plans.ts price, if one was already created (by an earlier
+// purchase of this same model, in this same currency, at this same price,
+// by anyone), or creates it. Using `lookup_key` this way means we never
+// need our own table mapping models to Stripe Price IDs — Stripe's
+// lookup_key index is that table.
 //
 // `currency` must match the target subscription's own currency (addModelAddon
 // below reads it off the live Stripe subscription) — a mismatched currency
@@ -47,7 +62,7 @@ export async function getOrCreateAddonPrice(model: string, currency: string): Pr
     throw new Error(`"${model}" isn't an add-on-eligible model.`);
   }
 
-  const lookupKey = lookupKeyForModel(model, currency);
+  const lookupKey = lookupKeyForModel(model, currency, priceCents);
 
   const existing = await stripe.prices.list({ lookup_keys: [lookupKey], active: true, limit: 1 });
   if (existing.data[0]) {

@@ -178,14 +178,14 @@ export function isModelAllowed(tier: PlanTierName, model: string): boolean {
 // draws from the plan's existing credit budget like any other model, so
 // there's no new provider-cost exposure here, only new access being sold.
 //
-// How each price is set: find the cheapest tier a model is naturally
-// included in, and look at that tier's price jump over the tier just below
-// it (e.g. STARTER → CREATOR is a $30/mo jump that newly unlocks 5 models).
-// Split that jump across those newly-unlocked models weighted by each
-// model's own credit cost (MODEL_CREDIT_COST — a stand-in for how
-// expensive/desirable it is, so Veo 3.1 is priced far above Wan 2.7 even
-// though both happen to unlock at the same tier), then apply a 1.4×
-// markup and round to a clean number.
+// How each price was ORIGINALLY set (still true for every model below
+// except the four STUDIO-exclusive ones, see the override note after this
+// comment): find the cheapest tier a model is naturally included in, and
+// look at that tier's price jump over the tier just below it (e.g.
+// STARTER → CREATOR is a $30/mo jump that newly unlocks 5 models). Split
+// that jump across those newly-unlocked models weighted by each model's own
+// credit cost (MODEL_CREDIT_COST — a stand-in for how expensive/desirable
+// it is), then apply a 1.4× markup and round to a clean number.
 //
 // That 1.4× markup is the part that keeps upgrading the actual plan worth
 // it: buying every model a tier newly unlocks, one at a time, always ends
@@ -194,6 +194,22 @@ export function isModelAllowed(tier: PlanTierName, model: string): boolean {
 // just one or two specific models stays clearly cheaper than a full tier
 // jump. Confirmed against all three tier jumps when this was built; keep
 // that property in mind before hand-editing any of these numbers.
+//
+// Why Veo 3.1, Wan 3.0 Prime, and LTX 2.5 Fast now DON'T follow that
+// formula: STUDIO's $130/mo jump unlocks only 4 models (Wan 3.0, LTX 2.5
+// Fast, Wan 3.0 Prime, Veo 3.1), and Veo's credit cost (320) so dominates
+// that small group's weighting that the formula alone pushed real-world
+// generation cost far out of the picture — Veo landed at $85/mo against a
+// real worst-case provider cost (Gemini Omni Flash, $0.10/sec, a Starter
+// account spending its entire 2,400-credit budget on nothing else) of
+// about $7.50/mo. Re-priced these three in November 2026 against that same
+// worst-case-real-cost-plus-$5–10-margin basis instead (Wan 3.0 itself
+// came out already close to its formula price under the same check, so it
+// was left alone). See the per-model comments below for each one's math;
+// re-run the same check before changing MODEL_CREDIT_COST or
+// MODEL_BASE_DURATION_SECONDS for any of the three, since that would move
+// the real-cost side of this math without this price following along
+// automatically.
 //
 // A price here is a snapshot at the moment someone buys it (see
 // ModelAddon.priceCents in schema.prisma) — changing a number below only
@@ -215,11 +231,26 @@ export const MODEL_ADDON_PRICE_CENTS: Record<string, number> = {
   "LTX 2.5 Pro": 1500,
   "Wan 2.7": 1600,
 
-  // Unlocked at STUDIO ($119 → $249, a $130/mo jump across these 4 models)
+  // Unlocked at STUDIO ($119 → $249, a $130/mo jump across these 4 models).
+  // Three of these four are priced off real worst-case provider cost
+  // instead of the formula above — see the comment before this map.
   "Wan 3.0": 2700,
-  "LTX 2.5 Fast": 3000,
-  "Wan 3.0 Prime": 4000,
-  "Veo 3.1": 8500,
+  // Real cost (Higgsfield's own published rate, $0.20/sec @720p): a Starter
+  // account maxing its 2,400 credits on nothing but this model (100 credits
+  // per 5s generation -> 24 generations) -> ~$24/mo worst case. 1700 = that
+  // plus a $5-10 margin, rounded to a clean number.
+  "LTX 2.5 Fast": 1700,
+  // Real cost is the least confident of these three (fal.ai doesn't list a
+  // Prime-specific rate; non-Prime Wan 3.0 runs $0.10-0.20/sec @720p, so
+  // treating Prime as similar-to-somewhat-higher): worst case ~$7-28/mo.
+  // 1400 sits in that range plus a margin — revisit if fal's actual invoice
+  // for this model says otherwise.
+  "Wan 3.0 Prime": 1400,
+  // Real cost (Gemini Omni Flash, $0.10/sec @720p, 3-10s/generation, no
+  // duration control): a Starter account maxing 2,400 credits on nothing
+  // but Veo (320 credits/generation -> 7.5 generations) -> $3.75-7.50/mo
+  // worst case. 1500 = the high end of that plus a $5-10 margin.
+  "Veo 3.1": 1500,
 };
 
 // null means this model isn't sellable as an add-on at all — either it's
