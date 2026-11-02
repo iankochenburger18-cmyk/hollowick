@@ -186,12 +186,18 @@ export const veoProvider: VideoProvider = {
       return { status: "failed", error: "Omni Flash reported completion but returned no video output" };
     }
 
-    // Per Google's own docs, GET /v1beta/interactions/{id} currently always
-    // inlines base64 data even when delivery: "uri" was requested in
-    // generate() above — but check for a real uri first in case that
-    // changes, since a URL avoids re-encoding/transferring the bytes twice.
+    // Google's own docs claim GET /v1beta/interactions/{id} always inlines
+    // base64 data even when delivery: "uri" was requested in generate()
+    // above — not true in practice, confirmed live: a real uri comes back.
+    // Like the old Veo file-download URIs, it 403s on a plain unauthenticated
+    // fetch (which is what storage.ts's uploadVideoFromUrl does) — it needs
+    // the API key attached as a query param to work without the SDK's auth
+    // headers, same fix the old veo.ts already applied for this exact class
+    // of Gemini file URI.
     if (videoContent.uri) {
-      return { status: "completed", videoUrl: videoContent.uri };
+      const apiKey = requireApiKey();
+      const separator = videoContent.uri.includes("?") ? "&" : "?";
+      return { status: "completed", videoUrl: `${videoContent.uri}${separator}key=${apiKey}` };
     }
 
     if (videoContent.data) {
