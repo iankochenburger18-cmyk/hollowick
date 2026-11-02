@@ -18,29 +18,50 @@ function slugForModel(model: string): string {
   return model.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
-function lookupKeyForModel(model: string): string {
-  return `model_addon_${slugForModel(model)}`;
+// Currency-specific: a Stripe Subscription requires every item on it to
+// share one currency, and that currency is set by whichever Price the base
+// plan was checked out with (see priceIdForTier in stripe.ts — those Prices
+// were created by hand in the Dashboard, not pinned to USD here) — it can
+// differ per account. Baking currency into the key means an add-on bought
+// by a USD subscription and one bought by a CHF subscription never collide
+// on the same Stripe Price (which would either crash, like the bug this is
+// fixing, or silently charge the wrong amount for one of the two).
+function lookupKeyForModel(model: string, currency: string): string {
+  return `model_addon_${slugForModel(model)}_${currency}`;
 }
 
-// Finds the Stripe Price for this model's add-on if one was already created
-// (by an earlier purchase of this same model, by anyone), or creates it.
-// Using `lookup_key` this way means we never need our own table mapping
-// models to Stripe Price IDs — Stripe's lookup_key index is that table.
-export async function getOrCreateAddonPrice(model: string): Promise<Stripe.Price> {
+// Finds the Stripe Price for this model's add-on, in the given currency, if
+// one was already created (by an earlier purchase of this same model in
+// this same currency, by anyone), or creates it. Using `lookup_key` this
+// way means we never need our own table mapping models to Stripe Price
+// IDs — Stripe's lookup_key index is that table.
+//
+// `currency` must match the target subscription's own currency (addModelAddon
+// below reads it off the live Stripe subscription) — a mismatched currency
+// is exactly what used to crash this with Stripe's "doesn't match the
+// expected currency" error, since every item on one subscription has to
+// share a currency.
+export async function getOrCreateAddonPrice(model: string, currency: string): Promise<Stripe.Price> {
   const priceCents = addonPriceForModel(model);
   if (priceCents === null) {
     throw new Error(`"${model}" isn't an add-on-eligible model.`);
   }
 
-  const lookupKey = lookupKeyForModel(model);
+  const lookupKey = lookupKeyForModel(model, currency);
 
   const existing = await stripe.prices.list({ lookup_keys: [lookupKey], active: true, limit: 1 });
   if (existing.data[0]) {
     return existing.data[0];
   }
 
+  // NOTE: priceCents (MODEL_ADDON_PRICE_CENTS in plans.ts) was set assuming
+  // USD. Using the same numeric amount for a non-USD currency charges that
+  // many minor units of THAT currency instead (e.g. 8500 becomes 85.00 CHF,
+  // not a converted $85 equivalent) — fine while CHF and USD stay close to
+  // parity, but worth real conversion if that drifts or a currency further
+  // from parity shows up.
   return stripe.prices.create({
-    currency: "usd",
+    currency,
     unit_amount: priceCents,
     recurring: { interval: "month" },
     lookup_key: lookupKey,
@@ -73,7 +94,15 @@ export async function addModelAddon(
     throw new Error(`${model} is already added to your plan.`);
   }
 
-  const price = await getOrCreateAddonPrice(model);
+  // Read the currency straight off the live Stripe subscription rather than
+  // assuming USD — our own Subscription row doesn't store it, and it's set
+  // by whichever Price the base plan was checked out with (see the comment
+  // on getOrCreateAddonPrice above). This is what the old hardcoded "usd"
+  // got wrong for any subscription whose plan Price isn't actually in USD.
+  const stripeSubscription = await stripe.subscriptions.retrieve(subscription.stripeSubscriptionId);
+  const currency = stripeSubscription.currency;
+
+  const price = await getOrCreateAddonPrice(model, currency);
   const item = await stripe.subscriptionItems.create({
     subscription: subscription.stripeSubscriptionId,
     price: price.id,
