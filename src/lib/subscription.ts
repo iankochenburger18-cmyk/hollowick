@@ -17,14 +17,22 @@ import { prisma } from "@/lib/prisma";
 // Always includes `modelAddons` (the à la carte models this account has
 // unlocked on top of its plan tier — see src/lib/model-addons.ts) so every
 // call site gets it for free rather than needing its own extra query.
+//
+// Filtered to removedAt: null — ModelAddon rows for a removed add-on are
+// kept, not deleted, purely for admin history reporting (see the comment
+// on ModelAddon.removedAt in schema.prisma), and were never meant to keep
+// granting access or showing as "added" once removed. Centralizing the
+// filter here means POST /api/generate's access check and GET
+// /api/billing/addons's "already active" check (the two real call sites)
+// don't each need to remember to exclude removed rows themselves.
 export async function getOrCreateSubscription(userId: string) {
   const existing = await prisma.subscription.findUnique({
     where: { userId },
-    include: { modelAddons: true },
+    include: { modelAddons: { where: { removedAt: null } } },
   });
   if (existing) return existing;
   return prisma.subscription.create({
     data: { userId, planTier: "TRIAL", currentPeriodStart: new Date() },
-    include: { modelAddons: true },
+    include: { modelAddons: { where: { removedAt: null } } },
   });
 }

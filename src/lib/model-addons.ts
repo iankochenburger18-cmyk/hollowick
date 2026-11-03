@@ -111,8 +111,12 @@ export async function addModelAddon(
     throw new Error(`"${model}" isn't an add-on-eligible model.`);
   }
 
-  const alreadyAdded = await prisma.modelAddon.findUnique({
-    where: { subscriptionId_model: { subscriptionId: subscription.id, model } },
+  // findFirst, not findUnique — (subscriptionId, model) is no longer a
+  // whole-table unique key now that removed add-ons stay as rows instead of
+  // being deleted (see the ModelAddon.removedAt comment in schema.prisma),
+  // so this has to explicitly scope to the still-active one.
+  const alreadyAdded = await prisma.modelAddon.findFirst({
+    where: { subscriptionId: subscription.id, model, removedAt: null },
   });
   if (alreadyAdded) {
     throw new Error(`${model} is already added to your plan.`);
@@ -151,16 +155,26 @@ export async function addModelAddon(
 
 // Removes one previously-added model add-on — cancels its Stripe
 // SubscriptionItem (Stripe prorates the refund/credit for the unused
-// remainder automatically) and deletes the matching ModelAddon row. Throws
-// if this account never had that add-on.
+// remainder automatically) and marks the matching ModelAddon row removed.
+// Throws if this account doesn't currently have that add-on active.
+//
+// This sets removedAt rather than deleting the row (see the comment on
+// ModelAddon.removedAt in schema.prisma) so the account's add-on history —
+// which model, what it cost, when it was added, when it was dropped, how
+// long they actually had it — stays in the database for
+// supabase/sql/admin_user_addons.sql to report on, instead of disappearing
+// the moment someone removes it. getOrCreateSubscription (subscription.ts)
+// already filters its modelAddons include to removedAt: null, so nothing
+// else in the app needs to change to keep treating a removed add-on as
+// gone.
 export async function removeModelAddon(subscriptionId: string, model: string): Promise<void> {
-  const addon = await prisma.modelAddon.findUnique({
-    where: { subscriptionId_model: { subscriptionId, model } },
+  const addon = await prisma.modelAddon.findFirst({
+    where: { subscriptionId, model, removedAt: null },
   });
   if (!addon) {
     throw new Error(`${model} isn't currently added to your plan.`);
   }
 
   await stripe.subscriptionItems.del(addon.stripeSubscriptionItemId);
-  await prisma.modelAddon.delete({ where: { id: addon.id } });
+  await prisma.modelAddon.update({ where: { id: addon.id }, data: { removedAt: new Date() } });
 }

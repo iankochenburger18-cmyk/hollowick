@@ -58,10 +58,25 @@ model ModelAddon {
   // the subscription. See removeModelAddon in src/lib/model-addons.ts.
   stripeSubscriptionItemId String @unique
   createdAt      DateTime     @default(now())
+  // When this add-on was removed (DELETE /api/billing/addons, or the whole
+  // subscription getting cancelled — see customer.subscription.deleted in
+  // src/app/api/billing/webhook/route.ts) — null while still active.
+  // removeModelAddon (src/lib/model-addons.ts) sets this instead of
+  // deleting the row, specifically so an account's full add-on history
+  // (which models, bought when, kept for how long, dropped when) stays
+  // queryable in Supabase — see supabase/sql/admin_user_addons.sql. Rows
+  // removed before this column existed were hard-deleted and are gone;
+  // this can only track removals from here forward.
+  removedAt      DateTime?
 
-  // One add-on per model per subscription — buying the same model twice
-  // should never be possible.
-  @@unique([subscriptionId, model])
+  // A subscription can add, remove, and re-add the same model multiple
+  // times over its life — each is its own row here — but should never have
+  // two ACTIVE rows for the same model at once. That's enforced by a
+  // migration-only partial unique index (ModelAddon_active_subscriptionId_model_key,
+  // "...(subscriptionId, model) WHERE removedAt IS NULL") rather than a
+  // plain @@unique here, since Prisma's schema-level @@unique can't express
+  // a WHERE clause and a whole-table unique on (subscriptionId, model)
+  // would block ever re-adding a model that was previously removed.
   @@index([subscriptionId])
 }
 
