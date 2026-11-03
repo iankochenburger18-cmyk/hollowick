@@ -5,6 +5,7 @@ import { issueVerificationEmail } from "@/lib/email-verification";
 import { sendTrialStartedEmail } from "@/lib/email";
 import { computeCurrentPeriod } from "@/lib/plans";
 import { FRONTEND_URL } from "@/lib/frontend-url";
+import { allowTrialSignupFromIp, clientIpFromHeaders, isDisposableOrInvalidEmail } from "@/lib/abuse-prevention";
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
@@ -18,9 +19,33 @@ export async function POST(request: Request) {
     );
   }
 
+  // Checked before the existing-account lookup below so a disposable email
+  // never even gets to that query — but after the basic shape check above,
+  // so a request that's missing a password entirely still gets the cheaper,
+  // more specific "email and password required" error instead of this one.
+  if (isDisposableOrInvalidEmail(email)) {
+    return NextResponse.json(
+      { error: "That email address can't be used to sign up — please use a permanent email address." },
+      { status: 400 }
+    );
+  }
+
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
     return NextResponse.json({ error: "An account with that email already exists." }, { status: 409 });
+  }
+
+  // Checked last, right before anything gets created — every check above
+  // this point is cheap and already rules out most doomed requests
+  // (malformed input, a disposable email, a duplicate account), so a real
+  // trial-abuse attempt is the only thing left spending one of this IP's 3
+  // signups for the week.
+  const ip = clientIpFromHeaders(request.headers);
+  if (!(await allowTrialSignupFromIp(ip))) {
+    return NextResponse.json(
+      { error: "Too many trial signups from this network recently — please try again later, or pick a paid plan." },
+      { status: 429 }
+    );
   }
 
   const passwordHash = await bcrypt.hash(password, 12);

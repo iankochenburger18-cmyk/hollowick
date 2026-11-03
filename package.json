@@ -21,6 +21,7 @@
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.34.6",
     "ioredis": "^5.4.2",
+    "mailchecker": "^6.0.21",
     "next": "^15.1.4",
     "next-auth": "5.0.0-beta.25",
     "react": "^19.0.0",
