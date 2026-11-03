@@ -104,6 +104,38 @@ export async function sendTrialEndingSoonEmail(to: string, daysLeft: number, pri
   await send(to, `Your Hollowick trial ends in ${days}`, html, text);
 }
 
+// priceCents/currency describe the add-on's recurring price exactly as
+// Stripe will actually charge it (see addModelAddon in model-addons.ts,
+// which reads currency off the live subscription rather than assuming
+// USD) — formatAmount below uses Intl's currency formatter instead of a
+// hardcoded "$" so a CHF (or any other currency) account gets an accurate
+// amount here, unlike the pricing page's display, which still assumes $.
+function formatAmount(cents: number, currency: string): string {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(cents / 100);
+}
+
+export async function sendModelAddonPurchasedEmail(
+  to: string,
+  model: string,
+  priceCents: number,
+  currency: string,
+  nextBillingDate: Date,
+  manageUrl: string
+): Promise<void> {
+  const amount = formatAmount(priceCents, currency);
+  const billingDateLabel = nextBillingDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  const html = layout(
+    `${model} is now available in your Hollowick studio.`,
+    `<p style="margin:0 0 4px;font-size:18px;font-weight:600;">${model} added to your plan</p>
+     <p style="margin:0;">You just added <strong>${model}</strong> for <strong>${amount}/mo</strong> — it's available in the studio right away.</p>
+     <p style="margin:16px 0 0;">This doesn't charge your card today. It'll show up as a prorated line on your next regular invoice, on <strong>${billingDateLabel}</strong>, alongside your plan renewal.</p>
+     <p style="margin:16px 0 0;color:${MUTED};font-size:12px;">Change your mind before then? Remove it from the pricing page any time before ${billingDateLabel} and you'll only be charged for the prorated time you actually had it — not the full ${amount}.</p>
+     ${button("Manage your models", manageUrl)}`
+  );
+  const text = `You just added ${model} to your Hollowick plan for ${amount}/mo. This doesn't charge your card today — it'll show up as a prorated line on your next regular invoice, on ${billingDateLabel}. If you remove it before then, you'll only be charged for the prorated time you actually had it, not the full ${amount}. Manage your models: ${manageUrl}`;
+  await send(to, `${model} added to your plan — Hollowick`, html, text);
+}
+
 export async function sendTrialEndedEmail(to: string, pricingUrl: string): Promise<void> {
   const html = layout(
     "Your Hollowick trial has ended.",

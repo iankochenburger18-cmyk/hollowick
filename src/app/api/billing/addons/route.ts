@@ -3,6 +3,8 @@ import { auth } from "@/lib/auth";
 import { getOrCreateSubscription } from "@/lib/subscription";
 import { addModelAddon, removeModelAddon } from "@/lib/model-addons";
 import { upgradeableModelsForTier, addonPriceForModel, type PlanTierName } from "@/lib/plans";
+import { sendModelAddonPurchasedEmail } from "@/lib/email";
+import { FRONTEND_URL } from "@/lib/frontend-url";
 
 // Lets the pricing page (hollowick-site's pricing.js) show a signed-in
 // account which models aren't included in their current plan tier, what
@@ -60,11 +62,34 @@ export async function POST(request: Request) {
     );
   }
 
+  let result;
   try {
-    await addModelAddon(subscription, model);
+    result = await addModelAddon(subscription, model);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Could not add that model.";
     return NextResponse.json({ error: message }, { status: 400 });
+  }
+
+  // Best-effort, same as register/route.ts's welcome email — the purchase
+  // already succeeded above (real Stripe item, real DB row), so a Resend
+  // hiccup here shouldn't turn into a 500 for something that actually
+  // worked. priceCents comes back off the ModelAddon row itself (the exact
+  // amount this purchase was actually priced at), not re-read from
+  // plans.ts, so a repricing between purchase and send can't produce a
+  // mismatched email.
+  if (session.user.email) {
+    try {
+      await sendModelAddonPurchasedEmail(
+        session.user.email,
+        model,
+        result.modelAddon.priceCents,
+        result.currency,
+        result.nextBillingDate,
+        `${FRONTEND_URL}/pricing/`
+      );
+    } catch (err) {
+      console.error(`billing/addons: failed to send add-on purchase email to ${session.user.email}:`, err);
+    }
   }
 
   return NextResponse.json({ ok: true, model }, { status: 201 });

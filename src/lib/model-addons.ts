@@ -84,6 +84,15 @@ export async function getOrCreateAddonPrice(model: string, currency: string): Pr
   });
 }
 
+export interface AddModelAddonResult {
+  modelAddon: Awaited<ReturnType<typeof prisma.modelAddon.create>>;
+  // Both needed by the caller to send the "you just added this" email
+  // (src/lib/email.ts's sendModelAddonPurchasedEmail, called from the
+  // route) without it having to re-fetch anything from Stripe itself.
+  currency: string;
+  nextBillingDate: Date;
+}
+
 // Adds one model add-on to an account's existing Stripe Subscription and
 // records it. Throws (with a message safe to surface to the caller) if the
 // account has no live Stripe subscription to attach it to, if the model
@@ -92,7 +101,7 @@ export async function getOrCreateAddonPrice(model: string, currency: string): Pr
 export async function addModelAddon(
   subscription: { id: string; planTier: string; stripeSubscriptionId: string | null },
   model: string
-) {
+): Promise<AddModelAddonResult> {
   if (!subscription.stripeSubscriptionId) {
     throw new Error("Pick a paid plan first — there's no active subscription to add this to yet.");
   }
@@ -123,7 +132,7 @@ export async function addModelAddon(
     price: price.id,
   });
 
-  return prisma.modelAddon.create({
+  const modelAddon = await prisma.modelAddon.create({
     data: {
       subscriptionId: subscription.id,
       model,
@@ -131,6 +140,13 @@ export async function addModelAddon(
       stripeSubscriptionItemId: item.id,
     },
   });
+
+  // current_period_end lives on the item Stripe just handed back (see the
+  // comment on syncSubscriptionFromStripe in stripe.ts) — this is the date
+  // the pending proration this add actually created (see getOrCreateAddonPrice's
+  // comment above) will get folded into a real invoice and charged, which
+  // is exactly what the confirmation email needs to tell the account.
+  return { modelAddon, currency, nextBillingDate: new Date(item.current_period_end * 1000) };
 }
 
 // Removes one previously-added model add-on — cancels its Stripe
