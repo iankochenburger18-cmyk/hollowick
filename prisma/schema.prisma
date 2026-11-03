@@ -68,6 +68,20 @@ model ModelAddon {
   // removed before this column existed were hard-deleted and are gone;
   // this can only track removals from here forward.
   removedAt      DateTime?
+  // Denormalized copy of this add-on's owner's User.email, so the raw
+  // ModelAddon table is directly filterable/readable by email in
+  // Supabase's Table Editor without joining through Subscription -> User
+  // (see supabase/sql/admin_user_addons.sql for the view that already did
+  // that join — this is for browsing the raw table itself). Always
+  // derived, never set by application code: the @default("") below exists
+  // only so Prisma's generated create() input treats it as optional — the
+  // real value comes from the set_model_addon_email BEFORE INSERT trigger
+  // (added in the add_model_addon_email migration), which looks it up from
+  // subscriptionId and overwrites whatever was passed in. A second trigger
+  // on User (propagate_user_email_to_model_addons) keeps every existing row
+  // in sync if the owner's email ever changes later, so this never goes
+  // stale the way a plain one-time snapshot would.
+  email          String    @default("")
 
   // A subscription can add, remove, and re-add the same model multiple
   // times over its life — each is its own row here — but should never have
