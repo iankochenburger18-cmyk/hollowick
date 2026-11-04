@@ -17,6 +17,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
   }
 
   const { jobId } = await params;
+  const url = new URL(request.url);
+  const forceDownload = url.searchParams.has("download");
 
   const job = await prisma.generationJob.findUnique({
     where: { id: jobId },
@@ -51,6 +53,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
     "Accept-Ranges": "bytes",
     "Cache-Control": "private, max-age=3600",
   });
+  // Opt-in via ?download — the studio's download button (studio.js) links
+  // here with that param. Without it, this stays a plain inline stream, as
+  // before, for the <video> element itself. Content-Disposition is what
+  // actually forces a save-as rather than relying on the frontend anchor's
+  // own `download` attribute, which browsers largely ignore for a
+  // cross-origin URL like this one (api.hollowick.app from hollowick.app) —
+  // this header is honored regardless of origin since it's a plain
+  // navigation, not a fetch().
+  if (forceDownload) headers.set("Content-Disposition", `attachment; filename="hollowick-${job.id.slice(0, 8)}.mp4"`);
   if (object.contentLength !== undefined) headers.set("Content-Length", String(object.contentLength));
   if (object.contentRange) headers.set("Content-Range", object.contentRange);
 
